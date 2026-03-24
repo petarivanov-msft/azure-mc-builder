@@ -80,24 +80,16 @@ pwsh ./package.ps1`}</pre>
 
           {/* Step 4 */}
           <h2 style={h2}>Step 4 — Upload to Azure Blob Storage</h2>
-          <p style={p}>Use either Azure CLI or Az PowerShell — both work. The container can stay private (the SAS token grants read access).</p>
-          <p style={{ ...p, fontWeight: 600, fontSize: '12.5px', margin: '12px 0 4px' }}>Option A — Azure CLI:</p>
-          <pre style={code}>{`# Create storage (or use existing)
-az storage account create -n mcpackages -g myRG -l uksouth --sku Standard_LRS
-az storage container create -n guestconfig --account-name mcpackages
+          <p style={p}>The container can stay private — the SAS token grants read access for the MC agent.</p>
+          <pre style={code}>{`# Create storage account and container (or use existing)
+New-AzStorageAccount -ResourceGroupName 'myRG' -Name 'mcpackages' -Location 'uksouth' -SkuName 'Standard_LRS'
+$ctx = (Get-AzStorageAccount -ResourceGroupName 'myRG' -Name 'mcpackages').Context
+New-AzStorageContainer -Name 'guestconfig' -Context $ctx
 
 # Upload the package
-az storage blob upload \\
-  --account-name mcpackages -c guestconfig \\
-  -f ./output/MyConfig.zip -n MyConfig.zip
+Set-AzStorageBlobContent -Container 'guestconfig' -File '.\\output\\MyConfig.zip' -Blob 'MyConfig.zip' -Context $ctx
 
-# Get a download URL (SAS token)
-az storage blob generate-sas \\
-  --account-name mcpackages -c guestconfig -n MyConfig.zip \\
-  --permissions r --expiry 2027-01-01 --full-uri -o tsv`}</pre>
-          <p style={{ ...p, fontWeight: 600, fontSize: '12.5px', margin: '12px 0 4px' }}>Option B — Az PowerShell:</p>
-          <pre style={code}>{`$ctx = (Get-AzStorageAccount -ResourceGroupName 'myRG' -Name 'mcpackages').Context
-Set-AzStorageBlobContent -Container 'guestconfig' -File './output/MyConfig.zip' -Context $ctx
+# Get a download URL (SAS token, valid 3 years)
 $uri = New-AzStorageBlobSASToken -Container 'guestconfig' -Blob 'MyConfig.zip' \\
   -Permission r -ExpiryTime (Get-Date).AddYears(3) -Context $ctx -FullUri`}</pre>
 

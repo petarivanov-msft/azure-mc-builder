@@ -107,7 +107,7 @@ These must be in place **before** your custom policy will evaluate:
 ### 1. Register the resource provider
 
 \`\`\`powershell
-az provider register --namespace Microsoft.GuestConfiguration
+Register-AzResourceProvider -ProviderNamespace Microsoft.GuestConfiguration
 \`\`\`
 
 ### 2. Deploy prerequisites to VMs
