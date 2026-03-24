@@ -108,8 +108,8 @@ The `GuestConfiguration` module doesn't allow resources from `PSDesiredStateConf
 ### Compliance shows "Not started" after 30+ minutes
 
 Check:
-1. Is the MC extension installed on the VM? (`az vm extension list -g <rg> -n <vm>`)
-2. Does the VM have a system-assigned managed identity? (`az vm show -g <rg> -n <vm> --query identity`)
+1. Is the MC extension installed on the VM? (`Get-AzVMExtension -ResourceGroupName '<rg>' -VMName '<vm>' | Select Name, ProvisioningState`)
+2. Does the VM have a system-assigned managed identity? (`(Get-AzVM -ResourceGroupName '<rg>' -Name '<vm>').Identity`)
 3. Is the SAS URL still valid and accessible?
 4. Check the MC agent logs:
    - **Windows:** `C:\ProgramData\GuestConfig\gc_agent_logs\gc_agent.log`

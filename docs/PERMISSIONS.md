@@ -6,13 +6,9 @@ Everything you need to set up before deploying Machine Configuration packages.
 
 The `Microsoft.GuestConfiguration` resource provider must be registered on your subscription. This is a one-time step.
 
-```bash
-# Azure CLI
-az provider register --namespace Microsoft.GuestConfiguration
-az provider show --namespace Microsoft.GuestConfiguration --query registrationState
-
-# PowerShell
+```powershell
 Register-AzResourceProvider -ProviderNamespace Microsoft.GuestConfiguration
+(Get-AzResourceProvider -ProviderNamespace Microsoft.GuestConfiguration).RegistrationState
 ```
 
 **Common error if skipped:** `The resource type 'guestConfigurationAssignments' could not be found`
@@ -64,22 +60,16 @@ Automatically installs the Machine Configuration extension on VMs.
 | Windows | Deploy the Windows Guest Configuration extension | `385f5831-96d4-41db-9a3c-cd3af78aaae6` |
 | Linux | Deploy the Linux Guest Configuration extension | `331e8ea8-378a-410f-a2e5-ae22f38bb0da` |
 
-```bash
+```powershell
 # Assign Windows MC extension policy
-az policy assignment create \
-  --name "deploy-mc-windows" \
-  --policy "385f5831-96d4-41db-9a3c-cd3af78aaae6" \
-  --scope "/subscriptions/<subscription-id>" \
-  --mi-system-assigned \
-  --location uksouth
+$winDef = Get-AzPolicyDefinition -Id '/providers/Microsoft.Authorization/policyDefinitions/385f5831-96d4-41db-9a3c-cd3af78aaae6'
+New-AzPolicyAssignment -Name 'deploy-mc-windows' -PolicyDefinition $winDef `
+  -Scope '/subscriptions/<subscription-id>' -Location 'uksouth' -IdentityType 'SystemAssigned'
 
 # Assign Linux MC extension policy
-az policy assignment create \
-  --name "deploy-mc-linux" \
-  --policy "331e8ea8-378a-410f-a2e5-ae22f38bb0da" \
-  --scope "/subscriptions/<subscription-id>" \
-  --mi-system-assigned \
-  --location uksouth
+$linDef = Get-AzPolicyDefinition -Id '/providers/Microsoft.Authorization/policyDefinitions/331e8ea8-378a-410f-a2e5-ae22f38bb0da'
+New-AzPolicyAssignment -Name 'deploy-mc-linux' -PolicyDefinition $linDef `
+  -Scope '/subscriptions/<subscription-id>' -Location 'uksouth' -IdentityType 'SystemAssigned'
 ```
 
 ### Add System-Assigned Managed Identity
@@ -90,54 +80,40 @@ Ensures VMs have a system-assigned managed identity (required for the MC agent t
 |-------------|-----------|
 | Add system-assigned managed identity | `3cf2ab00-13f1-4d0c-8971-2ac904541a7e` |
 
-```bash
-az policy assignment create \
-  --name "add-system-identity" \
-  --policy "3cf2ab00-13f1-4d0c-8971-2ac904541a7e" \
-  --scope "/subscriptions/<subscription-id>" \
-  --mi-system-assigned \
-  --location uksouth
+```powershell
+$idDef = Get-AzPolicyDefinition -Id '/providers/Microsoft.Authorization/policyDefinitions/3cf2ab00-13f1-4d0c-8971-2ac904541a7e'
+New-AzPolicyAssignment -Name 'add-system-identity' -PolicyDefinition $idDef `
+  -Scope '/subscriptions/<subscription-id>' -Location 'uksouth' -IdentityType 'SystemAssigned'
 ```
 
 > **Tip:** There's a built-in **initiative** (policy set) that bundles all three: `Deploy prerequisites to enable Guest Configuration policies on virtual machines`. Initiative ID: `12794019-7a00-42cf-95c2-882eed337cc8`. Assigning this one initiative covers everything.
 
-```bash
+```powershell
 # Assign the initiative (recommended — covers all three)
-az policy assignment create \
-  --name "mc-prerequisites" \
-  --policy-set-definition "12794019-7a00-42cf-95c2-882eed337cc8" \
-  --scope "/subscriptions/<subscription-id>" \
-  --mi-system-assigned \
-  --location uksouth
+$initiative = Get-AzPolicySetDefinition -Id '/providers/Microsoft.Authorization/policySetDefinitions/12794019-7a00-42cf-95c2-882eed337cc8'
+New-AzPolicyAssignment -Name 'mc-prerequisites' -PolicySetDefinition $initiative `
+  -Scope '/subscriptions/<subscription-id>' -Location 'uksouth' -IdentityType 'SystemAssigned'
 ```
 
 ## 4. Storage Account Setup
 
-You need a storage account to host your MC packages. The MC agent downloads packages via HTTPS (SAS token or managed identity).
+You need a storage account to host your MC packages. The MC agent downloads packages via HTTPS (SAS token or managed identity). The container can stay private — the SAS token provides read access.
 
-```bash
+```powershell
 # Create resource group and storage account
-az group create -n MC-Packages -l uksouth
-az storage account create -n mcpackagesstore -g MC-Packages -l uksouth --sku Standard_LRS
+New-AzResourceGroup -Name 'MC-Packages' -Location 'uksouth'
+New-AzStorageAccount -ResourceGroupName 'MC-Packages' -Name 'mcpackagesstore' -Location 'uksouth' -SkuName 'Standard_LRS'
+$ctx = (Get-AzStorageAccount -ResourceGroupName 'MC-Packages' -Name 'mcpackagesstore').Context
 
 # Create a container for packages
-az storage container create --account-name mcpackagesstore -n guestconfiguration
+New-AzStorageContainer -Name 'guestconfiguration' -Context $ctx
 
 # Upload a package
-az storage blob upload \
-  --account-name mcpackagesstore \
-  --container-name guestconfiguration \
-  --file ./output/MyConfig.zip \
-  --name MyConfig.zip
+Set-AzStorageBlobContent -Container 'guestconfiguration' -File '.\output\MyConfig.zip' -Blob 'MyConfig.zip' -Context $ctx
 
 # Generate a read-only SAS URL (valid 3 years)
-az storage blob generate-sas \
-  --account-name mcpackagesstore \
-  --container-name guestconfiguration \
-  --name MyConfig.zip \
-  --permissions r \
-  --expiry $(date -u -d "+3 years" '+%Y-%m-%dT%H:%MZ') \
-  --full-uri
+$uri = New-AzStorageBlobSASToken -Container 'guestconfiguration' -Blob 'MyConfig.zip' `
+  -Permission r -ExpiryTime (Get-Date).AddYears(3) -Context $ctx -FullUri
 ```
 
 ## 5. Complete Setup Checklist
@@ -157,7 +133,7 @@ az storage blob generate-sas \
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `The resource type 'guestConfigurationAssignments' could not be found` | Resource provider not registered | `az provider register --namespace Microsoft.GuestConfiguration` |
+| `The resource type 'guestConfigurationAssignments' could not be found` | Resource provider not registered | `Register-AzResourceProvider -ProviderNamespace Microsoft.GuestConfiguration` |
 | `GuestConfigurationAssignmentValidationFailed` | Hash mismatch between policy and actual package | Re-generate hash: `Get-FileHash MyConfig.zip -Algorithm SHA256` |
 | `couldn't find PowerShell DSC resource with moduleName:nx` | Using the legacy `nx` module instead of `nxtools` | Rebuild package with `nxtools` module (this builder handles it) |
 | `Extension 'AzurePolicyforLinux' not found` | MC extension not deployed | Assign the MC prerequisites initiative |
