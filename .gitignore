@@ -25,7 +25,6 @@ dist-ssr
 
 .env
 *.pptx
-docs/udemy-course-knowledge-base.md
 infra/terraform.tfvars
 infra/.terraform/
 infra/*.tfstate*
