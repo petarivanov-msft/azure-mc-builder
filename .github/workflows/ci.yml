@@ -1,0 +1,101 @@
+name: CI - Build, Test and E2E Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─────────────────────────────────────────────────────────
+  # Unit tests + build (runs on Linux, fast)
+  # ─────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build and Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npx vitest run
+      - run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 5
+
+  # ─────────────────────────────────────────────────────────
+  # E2E: Linux packages (ubuntu runner)
+  # ─────────────────────────────────────────────────────────
+  e2e-linux:
+    name: E2E Linux Packages
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    env:
+      E2E_OUTPUT: /tmp/mc-e2e
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Ubuntu GH runners already have pwsh installed
+      - name: Verify PowerShell
+        run: pwsh --version
+
+      # Create GuestConfig directory (gc_worker needs it writable)
+      - name: Prepare GuestConfig directory
+        run: |
+          sudo mkdir -p /var/lib/GuestConfig
+          sudo chmod 777 /var/lib/GuestConfig
+
+      # Generate test configurations from schemas + templates
+      - name: Generate test configs
+        run: npx tsx e2e/generate-test-configs.ts
+
+      # Run E2E validation - builds packages and evaluates with real DSC engine
+      - name: Validate Linux packages
+        run: pwsh -File e2e/validate-packages.ps1 -InputDir /tmp/mc-e2e -TargetPlatform Linux
+
+  # ─────────────────────────────────────────────────────────
+  # E2E: Windows packages (windows runner)
+  # ─────────────────────────────────────────────────────────
+  e2e-windows:
+    name: E2E Windows Packages
+    runs-on: windows-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Generate test configurations
+      - name: Generate test configs
+        shell: pwsh
+        run: |
+          $env:E2E_OUTPUT = Join-Path $env:RUNNER_TEMP 'mc-e2e'
+          npx tsx e2e/generate-test-configs.ts
+
+      # Run E2E validation
+      - name: Validate Windows packages
+        shell: pwsh
+        run: |
+          $inputDir = Join-Path $env:RUNNER_TEMP 'mc-e2e'
+          & .\e2e\validate-packages.ps1 -InputDir $inputDir -TargetPlatform Windows

@@ -1,0 +1,60 @@
+import { ResourceSchema } from '../../types';
+
+export const securityOptionSchema: ResourceSchema = {
+  resourceName: 'SecurityOption',
+  moduleName: 'SecurityPolicyDsc',
+  moduleVersion: '2.10.0.0',
+  mofClassName: 'MSFT_SecurityOption',
+  dscV3TypeName: 'SecurityPolicyDsc/SecurityOption',
+  platform: 'Windows',
+  description: 'Configure local security options (interactive logon, network security, UAC, etc.)',
+  docUrl: 'https://github.com/dsccommunity/SecurityPolicyDsc',
+  category: 'Security Policy',
+  properties: [
+    { name: 'Name', description: 'Unique identifier for this security option set', type: 'string', required: true, isKey: true, placeholder: 'SecurityOptions' },
+    { name: 'Accounts_Administrator_account_status', description: 'Enable or disable the local Administrator account', type: 'string', required: false, isKey: false, enumValues: ['Enabled', 'Disabled'] },
+    { name: 'Accounts_Guest_account_status', description: 'Enable or disable the Guest account', type: 'string', required: false, isKey: false, enumValues: ['Enabled', 'Disabled'] },
+    { name: 'Accounts_Rename_administrator_account', description: 'Rename the built-in Administrator account', type: 'string', required: false, isKey: false },
+    { name: 'Accounts_Rename_guest_account', description: 'Rename the built-in Guest account', type: 'string', required: false, isKey: false },
+    { name: 'Interactive_logon_Do_not_display_last_user_name', description: 'Hide last logged-on username on sign-in screen', type: 'string', required: false, isKey: false, enumValues: ['Enabled', 'Disabled'] },
+    { name: 'Interactive_logon_Do_not_require_CTRL_ALT_DEL', description: 'Whether CTRL+ALT+DEL is required before logon', type: 'string', required: false, isKey: false, enumValues: ['Enabled', 'Disabled'] },
+    { name: 'Interactive_logon_Message_text_for_users_attempting_to_log_on', description: 'Logon banner message text', type: 'string', required: false, isKey: false },
+    { name: 'Interactive_logon_Message_title_for_users_attempting_to_log_on', description: 'Logon banner message title', type: 'string', required: false, isKey: false },
+    { name: 'Interactive_logon_Machine_inactivity_limit', description: 'Seconds of inactivity before session locks', type: 'string', required: false, isKey: false },
+    { name: 'Microsoft_network_client_Digitally_sign_communications_always', description: 'Require SMB client packet signing', type: 'string', required: false, isKey: false, enumValues: ['Enabled', 'Disabled'] },
+    { name: 'Microsoft_network_server_Digitally_sign_communications_always', description: 'Require SMB server packet signing', type: 'string', required: false, isKey: false, enumValues: ['Enabled', 'Disabled'] },
+    { name: 'Network_access_Do_not_allow_anonymous_enumeration_of_SAM_accounts', description: 'Block anonymous SAM account enumeration', type: 'string', required: false, isKey: false, enumValues: ['Enabled', 'Disabled'] },
+    { name: 'Network_access_Do_not_allow_anonymous_enumeration_of_SAM_accounts_and_shares', description: 'Block anonymous SAM account and share enumeration', type: 'string', required: false, isKey: false, enumValues: ['Enabled', 'Disabled'] },
+    {
+      name: 'Network_security_LAN_Manager_authentication_level', description: 'LAN Manager authentication level for network logons', type: 'string', required: false, isKey: false,
+      enumValues: [
+        'Send LM & NTLM responses',
+        'Send LM & NTLM - use NTLMv2 session security if negotiated',
+        'Send NTLM responses only',
+        'Send NTLMv2 responses only',
+        'Send NTLMv2 responses only. Refuse LM',
+        'Send NTLMv2 responses only. Refuse LM & NTLM',
+      ],
+    },
+    {
+      name: 'Network_security_Minimum_session_security_for_NTLM_SSP_based_clients', description: 'Minimum session security for NTLM SSP clients', type: 'string', required: false, isKey: false,
+      enumValues: ['Require NTLMv2 session security', 'Require 128-bit encryption', 'Both options'],
+    },
+    {
+      name: 'Network_security_Minimum_session_security_for_NTLM_SSP_based_servers', description: 'Minimum session security for NTLM SSP servers', type: 'string', required: false, isKey: false,
+      enumValues: ['Require NTLMv2 session security', 'Require 128-bit encryption', 'Both options'],
+    },
+    {
+      name: 'User_Account_Control_Behavior_of_the_elevation_prompt_for_administrators_in_Admin_Approval_Mode',
+      description: 'UAC elevation prompt behavior for administrators',
+      type: 'string', required: false, isKey: false,
+      enumValues: [
+        'Elevate without prompting', 'Prompt for credentials on the secure desktop',
+        'Prompt for consent on the secure desktop', 'Prompt for credentials',
+        'Prompt for consent', 'Prompt for consent for non-Windows binaries',
+      ],
+    },
+    { name: 'User_Account_Control_Detect_application_installations_and_prompt_for_elevation', description: 'Detect app installs and prompt for elevation', type: 'string', required: false, isKey: false, enumValues: ['Enabled', 'Disabled'] },
+    { name: 'User_Account_Control_Run_all_administrators_in_Admin_Approval_Mode', description: 'Enable Admin Approval Mode for all administrators', type: 'string', required: false, isKey: false, enumValues: ['Enabled', 'Disabled'] },
+  ],
+};
