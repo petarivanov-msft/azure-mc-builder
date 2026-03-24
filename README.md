@@ -28,9 +28,9 @@ The downloaded bundle contains:
 |------|---------|
 | `<Name>.mof` | Compiled DSC configuration (what the MC agent evaluates) |
 | `<Name>.ps1` | PowerShell DSC Configuration script (human-readable source) |
-| `metaconfig.json` | MC agent behavior settings |
+| `metaconfig.json` | MC agent behavior settings (reference copy — `package.ps1` embeds this automatically) |
 | `policy.json` | Azure Policy definition (AuditIfNotExists or DeployIfNotExists) |
-| `package.ps1` | Helper script — auto-installs modules, creates package, tests locally |
+| `package.ps1` | Helper script — auto-installs modules, creates deployable package, tests locally |
 | `README.md` | Step-by-step deployment instructions |
 
 ## End-to-End Workflow
@@ -53,10 +53,11 @@ The downloaded bundle contains:
 # 1. Build your config in the web app, download the ZIP
 
 # 2. Create the deployable package (on your workstation, NOT the target VM)
+#    Use pwsh (PowerShell 7+), NOT powershell (Windows PowerShell 5.1)
 cd <extracted-folder>
-.\package.ps1   # Installs modules, compiles MOF, creates .zip, runs local test
+pwsh ./package.ps1   # Installs modules, creates .zip package, runs local test
 
-# 3. Upload to Azure Blob Storage
+# 3. Upload to Azure Blob Storage (requires Az module: Install-Module Az)
 $ctx = (Get-AzStorageAccount -ResourceGroupName 'myRG' -Name 'mystorage').Context
 Set-AzStorageBlobContent -Container 'guestconfiguration' -File '.\output\MyConfig.zip' -Context $ctx
 $uri = New-AzStorageBlobSASToken -Container 'guestconfiguration' -Blob 'MyConfig.zip' `
@@ -67,10 +68,11 @@ $hash = (Get-FileHash '.\output\MyConfig.zip' -Algorithm SHA256).Hash
 
 # 5. Update policy.json with the URI and hash, then create the policy
 #    Replace {{contentUri}} and {{contentHash}} in policy.json
-New-AzPolicyDefinition -Name 'MyConfig' -Policy '.\policy.json' -Mode 'All'
+New-AzPolicyDefinition -Name 'MyConfig' -Policy '.\policy.json' -Mode 'Indexed'
 
 # 6. Assign the policy to a scope
-New-AzPolicyAssignment -Name 'MyConfig' -PolicyDefinition $policy -Scope '/subscriptions/<sub-id>'
+$def = Get-AzPolicyDefinition -Name 'MyConfig'
+New-AzPolicyAssignment -Name 'MyConfig' -PolicyDefinition $def -Scope '/subscriptions/<sub-id>'
 ```
 
 ## Supported Resources (29)
@@ -174,17 +176,18 @@ See [docs/PERMISSIONS.md](docs/PERMISSIONS.md) for the full guide.
 ## Prerequisites
 
 - **Azure subscription** with the permissions above
-- **PowerShell 7.x** ([install guide](https://learn.microsoft.com/powershell/scripting/install/installing-powershell))
+- **PowerShell 7.x** — run `pwsh`, not `powershell` (Windows PowerShell 5.1 won't work) — [install guide](https://learn.microsoft.com/powershell/scripting/install/installing-powershell)
+- **Az PowerShell module** — `Install-Module Az -Scope CurrentUser` (for Steps 3–6: upload, policy creation, assignment)
 - DSC modules are installed automatically by `package.ps1`
 
 > **Author packages on your workstation**, not on target VMs. PowerShell 7 is cross-platform — you can build Linux packages from Windows and vice versa.
 
 ## Tech Stack
 
-- React 18 + TypeScript + Vite 8
+- React 18 + TypeScript + Vite
 - [Fluent UI v9](https://react.fluentui.dev/) (Microsoft's design system)
 - [Zustand](https://github.com/pmndrs/zustand) (state management with undo/redo)
-- Deployed to Azure Static Web Apps (Free tier)
+- Deployed to [GitHub Pages](https://petarivanov-msft.github.io/azure-mc-builder/)
 
 ## Development
 

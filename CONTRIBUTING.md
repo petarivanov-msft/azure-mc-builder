@@ -12,7 +12,7 @@ Thanks for your interest in contributing! This is a personal open-source project
 
 ## Development
 
-- **Stack**: React 19, TypeScript, Vite, Fluent UI v9
+- **Stack**: React 18, TypeScript, Vite, Fluent UI v9
 - **State**: Zustand with localStorage persistence
 - **Tests**: Vitest (unit) + PowerShell E2E validation scripts
 

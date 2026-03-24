@@ -60,7 +60,7 @@ export const GuideDialog: React.FC<Props> = ({ open, onClose }) => (
                 ['<Name>.ps1', 'PowerShell DSC script (human-readable version)'],
                 ['policy.json', 'Azure Policy definition template'],
                 ['package.ps1', 'Helper script that builds the deployable package'],
-                ['metaconfig.json', 'Package metadata for the GC agent'],
+                ['metaconfig.json', 'Package metadata (reference copy — package.ps1 embeds this automatically)'],
                 ['README.md', 'Full deployment instructions'],
               ].map(([file, desc], i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
@@ -73,13 +73,15 @@ export const GuideDialog: React.FC<Props> = ({ open, onClose }) => (
 
           {/* Step 3 */}
           <h2 style={h2}>Step 3 — Create the MC Package</h2>
-          <p style={p}>You need <strong>PowerShell 7+</strong> on your machine (Windows, Mac, or Linux).</p>
+          <p style={p}>You need <strong>PowerShell 7+</strong> on your machine (Windows, Mac, or Linux). Run <code>pwsh</code> (not <code>powershell</code> — that's Windows PowerShell 5.1 and won't work).</p>
           <pre style={code}>{`# Extract the ZIP, then run:
-.\\package.ps1`}</pre>
-          <p style={p}>The script automatically installs the required DSC modules (detected from the MOF), bundles them into a deployable <code>.zip</code> via <code>New-GuestConfigurationPackage</code>, and runs a local compliance test.</p>
+pwsh ./package.ps1`}</pre>
+          <p style={p}>The script automatically installs the <code>GuestConfiguration</code> module and all required DSC resource modules (detected from the MOF), bundles them into a deployable <code>.zip</code> via <code>New-GuestConfigurationPackage</code>, and runs a local compliance test.</p>
 
           {/* Step 4 */}
           <h2 style={h2}>Step 4 — Upload to Azure Blob Storage</h2>
+          <p style={p}>Use either Azure CLI or Az PowerShell — both work. The container can stay private (the SAS token grants read access).</p>
+          <p style={{ ...p, fontWeight: 600, fontSize: '12.5px', margin: '12px 0 4px' }}>Option A — Azure CLI:</p>
           <pre style={code}>{`# Create storage (or use existing)
 az storage account create -n mcpackages -g myRG -l uksouth --sku Standard_LRS
 az storage container create -n guestconfig --account-name mcpackages
@@ -93,12 +95,18 @@ az storage blob upload \\
 az storage blob generate-sas \\
   --account-name mcpackages -c guestconfig -n MyConfig.zip \\
   --permissions r --expiry 2027-01-01 --full-uri -o tsv`}</pre>
+          <p style={{ ...p, fontWeight: 600, fontSize: '12.5px', margin: '12px 0 4px' }}>Option B — Az PowerShell:</p>
+          <pre style={code}>{`$ctx = (Get-AzStorageAccount -ResourceGroupName 'myRG' -Name 'mcpackages').Context
+Set-AzStorageBlobContent -Container 'guestconfig' -File './output/MyConfig.zip' -Context $ctx
+$uri = New-AzStorageBlobSASToken -Container 'guestconfig' -Blob 'MyConfig.zip' \\
+  -Permission r -ExpiryTime (Get-Date).AddYears(3) -Context $ctx -FullUri`}</pre>
 
           {/* Step 5 */}
           <h2 style={h2}>Step 5 — Deploy the Azure Policy</h2>
+          <p style={p}>You need the <strong>Az PowerShell module</strong> (<code>Install-Module Az -Scope CurrentUser</code>) and must be signed in (<code>Connect-AzAccount</code>).</p>
           <ol>
             <li style={li}>Open the <code>policy.json</code> from your ZIP</li>
-            <li style={li}>Replace <code>{'{{contentUri}}'}</code> with the blob URL from Step 4</li>
+            <li style={li}>Replace <code>{'{{contentUri}}'}</code> with the blob SAS URL from Step 4</li>
             <li style={li}>Replace <code>{'{{contentHash}}'}</code> with the SHA256 hash (printed by <code>package.ps1</code>)</li>
             <li style={li}>Create and assign the policy:</li>
           </ol>
@@ -131,7 +139,7 @@ New-AzPolicyAssignment -Name 'MyConfig' \\
             <strong>Templates</strong> — Use the Templates button to start from a pre-built security baseline (CIS-aligned) instead of building from scratch.
           </div>
           <div style={{ ...tip, background: '#fff8f0', borderColor: '#ffd699' }}>
-            <strong>Community modules</strong> — If your configuration uses SecurityPolicyDsc, AuditPolicyDsc, NetworkingDsc, or ComputerManagementDsc, install those modules locally before running <code>package.ps1</code>.
+            <strong>pwsh, not powershell</strong> — Run <code>pwsh</code> (PowerShell 7+), not <code>powershell</code> (Windows PowerShell 5.1). The script requires PowerShell 7 features and will fail on 5.1.
           </div>
 
           {/* FAQ */}
