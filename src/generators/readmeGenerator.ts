@@ -37,8 +37,8 @@ ${config.description ? `\n${config.description}\n` : ''}
 | File | Description |
 |------|-------------|
 | \`${config.configName}.mof\` | Compiled MOF configuration (what the MC agent evaluates) |
-| \`${config.configName}.ps1\` | PowerShell DSC Configuration script (source) |
-| \`metaconfig.json\` | MC agent behavior (Audit or AuditAndSet) |
+| \`${config.configName}.ps1\` | PowerShell DSC Configuration script (source, for reference) |
+| \`metaconfig.json\` | MC agent behavior (reference copy — package.ps1 embeds this automatically) |
 | \`policy.json\` | Azure Policy definition (AuditIfNotExists) |
 | \`package.ps1\` | Helper script — creates deployable package and tests locally |
 | \`README.md\` | This file |
@@ -47,7 +47,8 @@ ${config.description ? `\n${config.description}\n` : ''}
 
 ### Prerequisites
 
-- PowerShell 7.x ([install](https://learn.microsoft.com/powershell/scripting/install/installing-powershell))
+- PowerShell 7.x — run \`pwsh\`, not \`powershell\` ([install](https://learn.microsoft.com/powershell/scripting/install/installing-powershell))
+- Az PowerShell module (\`Install-Module Az -Scope CurrentUser\`) for upload and policy steps
 - Azure subscription with Resource Policy Contributor role
 - Storage account for hosting packages
 
@@ -56,12 +57,14 @@ ${config.description ? `\n${config.description}\n` : ''}
 ### 1. Create the Package
 
 \`\`\`powershell
-.\\package.ps1
+pwsh ./package.ps1
 \`\`\`
 
 This installs \`GuestConfiguration\` and the required DSC modules (${modules.map(m => `\`${m.name}\``).join(', ')}), creates a deployable .zip from the pre-generated MOF, and runs a local compliance test.
 
 ### 2. Upload to Azure Blob Storage
+
+The container can stay private — the SAS token provides read access for the GC agent.
 
 \`\`\`powershell
 $ctx = (Get-AzStorageAccount -ResourceGroupName 'myRG' -Name 'mystorageaccount').Context
@@ -86,7 +89,7 @@ $hash = (Get-FileHash '.\\output\\${config.configName}.zip' -Algorithm SHA256).H
 2. Create the policy definition:
 
 \`\`\`powershell
-New-AzPolicyDefinition -Name '${config.configName}' -Policy '.\\policy.json' -Mode 'All'
+New-AzPolicyDefinition -Name '${config.configName}' -Policy '.\\policy.json' -Mode 'Indexed'
 \`\`\`
 
 3. Assign it:

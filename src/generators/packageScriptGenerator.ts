@@ -144,11 +144,11 @@ Write-Host ''
 
 # ─── Next Steps ──────────────────────────────────────────────────────────────
 Write-Host '📋 Next steps:' -ForegroundColor Cyan
-Write-Host '   1. Upload output/${safeName}.zip to Azure Blob Storage'
+Write-Host "   1. Upload output\\${safeName}.zip to Azure Blob Storage"
 Write-Host '   2. Open policy.json — replace {{contentUri}} with the blob URL (SAS token)'
 Write-Host "   3. Replace {{contentHash}} with: $hash"
 Write-Host '   4. Create the policy definition:'
-Write-Host "      New-AzPolicyDefinition -Name '${safeName}' -Policy '.\\policy.json' -Mode 'All'"
+Write-Host "      New-AzPolicyDefinition -Name '${safeName}' -Policy '.\\policy.json' -Mode 'Indexed'"
 Write-Host '   5. Assign the policy to your target scope'
 Write-Host ''
 Write-Host '⚠️  VM Prerequisites — assign this built-in initiative at subscription level:' -ForegroundColor Yellow
