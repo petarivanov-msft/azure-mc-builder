@@ -449,6 +449,22 @@ export const useConfigStore = create<AppState>((set, get) => ({
       // Platform-specific hints (shown as info icon on the resource, not as validation warnings)
       // WindowsFeature: only works on Server SKUs — noted in the schema description instead
       // nxPackage: dpkg-based — noted in the schema description instead
+
+      // nxFile: Mode is technically optional in schema but the nxtools DSC resource
+      // throws "Cannot bind argument to parameter 'Mode' because it is null" when
+      // creating files without it. Warn if Mode is empty for nxFile with Ensure=Present.
+      if (resource.schemaName === 'nxFile') {
+        const ensure = resource.properties['Ensure'] ?? 'Present';
+        const mode = resource.properties['Mode'];
+        if (ensure === 'Present' && (!mode || mode === '')) {
+          errors.push({
+            level: 'warning',
+            resourceId: resource.id,
+            field: 'Mode',
+            message: `[${resource.instanceName}] nxFile Mode should be set (e.g. "0644") — the nxtools agent will fail at runtime without it`,
+          });
+        }
+      }
     }
 
     // Circular dependency check

@@ -62,12 +62,68 @@ function generateAuditThen(configName: string): object {
   };
 }
 
+/** Build the configurationParameter ARM expression for parameterized policies.
+ *  Returns an array of { name, value } objects referencing ARM parameters. */
+function buildConfigurationParameters(config: ConfigurationState): Array<{ name: string; value: string }> {
+  const params: Array<{ name: string; value: string }> = [];
+  for (const resource of config.resources) {
+    const schema = (globalThis as any).__mcSchemas?.[resource.schemaName];
+    // For each property that has a value, it could be wired as a policy parameter.
+    // The convention is: [ResourceType]InstanceName;PropertyName
+    // We emit them as static values in the template; policy-level parameterization
+    // is handled by the caller replacing {{param:...}} placeholders.
+    for (const [propName, propValue] of Object.entries(resource.properties)) {
+      if (propValue !== undefined && propValue !== null && propValue !== '') {
+        params.push({
+          name: `[${resource.schemaName}]${resource.instanceName};${propName}`,
+          value: String(propValue),
+        });
+      }
+    }
+  }
+  return params;
+}
+
+/** Build the parameterHash existenceCondition fragment.
+ *  Microsoft built-in policies use base64-encoded concatenation of all parameter
+ *  name=value pairs to detect when policy parameters change and force redeployment.
+ *  For policies with no configurationParameters, this is omitted. */
+function buildExistenceCondition(configParams: Array<{ name: string; value: string }>): object {
+  if (configParams.length === 0) {
+    return {
+      allOf: [
+        {
+          field: 'Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus',
+          equals: 'Compliant',
+        },
+      ],
+    };
+  }
+
+  // Build the base64 concat expression for parameterHash matching
+  const paramParts = configParams.map(p => `${p.name}=${p.value}`).join(',');
+
+  return {
+    allOf: [
+      {
+        field: 'Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus',
+        equals: 'Compliant',
+      },
+      {
+        field: 'Microsoft.GuestConfiguration/guestConfigurationAssignments/parameterHash',
+        equals: `{{parameterHash:${paramParts}}}`,
+      },
+    ],
+  };
+}
+
 /** Generate DeployIfNotExists policy 'then' block for AuditAndSet (remediation) mode */
 function generateDeployThen(config: ConfigurationState): object {
   const isWindows = config.platform === 'Windows';
   const extensionType = isWindows ? 'ConfigurationforWindows' : 'ConfigurationforLinux';
   const extensionName = isWindows ? 'AzurePolicyforWindows' : 'AzurePolicyforLinux';
   const assignmentType = 'ApplyAndAutoCorrect';
+  const configParams = buildConfigurationParameters(config);
 
   return {
     effect: 'deployIfNotExists',
@@ -77,14 +133,7 @@ function generateDeployThen(config: ConfigurationState): object {
       roleDefinitionIds: [
         '/providers/microsoft.authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c',
       ],
-      existenceCondition: {
-        allOf: [
-          {
-            field: 'Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus',
-            equals: 'Compliant',
-          },
-        ],
-      },
+      existenceCondition: buildExistenceCondition(configParams),
       deployment: {
         properties: {
           mode: 'incremental',
@@ -128,7 +177,7 @@ function generateDeployThen(config: ConfigurationState): object {
                     contentUri: "[parameters('contentUri')]",
                     contentHash: "[parameters('contentHash')]",
                     assignmentType: assignmentType,
-                    configurationParameter: [],
+                    configurationParameter: configParams.length > 0 ? configParams : [],
                   },
                 },
               },
@@ -149,7 +198,7 @@ function generateDeployThen(config: ConfigurationState): object {
                 properties: {
                   publisher: 'Microsoft.GuestConfiguration',
                   type: extensionType,
-                  typeHandlerVersion: '1.0',
+                  typeHandlerVersion: '1.*',
                   autoUpgradeMinorVersion: true,
                 },
                 dependsOn: [

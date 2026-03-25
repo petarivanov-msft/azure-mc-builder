@@ -107,11 +107,81 @@ describe('policyGenerator', () => {
       expect(ext.name).toContain('AzurePolicyforLinux');
     });
 
+    it('uses typeHandlerVersion 1.* for auto-upgrade compatibility', () => {
+      const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet' })) as any;
+      const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
+      const ext = resources.find((r: any) => r.type === 'Microsoft.Compute/virtualMachines/extensions');
+      expect(ext.properties.typeHandlerVersion).toBe('1.*');
+    });
+
     it('includes contentUri and contentHash as template parameters', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet' })) as any;
       const params = policy.properties.policyRule.then.details.deployment.properties.parameters;
       expect(params.contentUri.value).toBe('{{contentUri}}');
       expect(params.contentHash.value).toBe('{{contentHash}}');
+    });
+
+    it('emits empty configurationParameter for configs with no resource properties', () => {
+      const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet', resources: [] })) as any;
+      const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
+      const gcAssignment = resources.find((r: any) =>
+        r.type === 'Microsoft.Compute/virtualMachines/providers/guestConfigurationAssignments'
+      );
+      expect(gcAssignment.properties.guestConfiguration.configurationParameter).toEqual([]);
+    });
+
+    it('emits configurationParameter entries for resources with properties', () => {
+      const config = makeConfig({
+        mode: 'AuditAndSet',
+        resources: [
+          {
+            id: 'r1',
+            schemaName: 'Registry',
+            instanceName: 'TestKey',
+            properties: { ValueName: 'MyVal', ValueData: 'Hello' },
+            dependsOn: [],
+          },
+        ],
+      });
+      const policy = generatePolicyJson(config) as any;
+      const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
+      const gcAssignment = resources.find((r: any) =>
+        r.type === 'Microsoft.Compute/virtualMachines/providers/guestConfigurationAssignments'
+      );
+      const params = gcAssignment.properties.guestConfiguration.configurationParameter;
+      expect(params.length).toBe(2);
+      expect(params[0].name).toBe('[Registry]TestKey;ValueName');
+      expect(params[0].value).toBe('MyVal');
+      expect(params[1].name).toBe('[Registry]TestKey;ValueData');
+      expect(params[1].value).toBe('Hello');
+    });
+
+    it('includes parameterHash in existenceCondition when parameters exist', () => {
+      const config = makeConfig({
+        mode: 'AuditAndSet',
+        resources: [
+          {
+            id: 'r1',
+            schemaName: 'Registry',
+            instanceName: 'TestKey',
+            properties: { ValueData: 'Hello' },
+            dependsOn: [],
+          },
+        ],
+      });
+      const policy = generatePolicyJson(config) as any;
+      const ec = policy.properties.policyRule.then.details.existenceCondition;
+      expect(ec.allOf.length).toBe(2);
+      expect(ec.allOf[1].field).toBe(
+        'Microsoft.GuestConfiguration/guestConfigurationAssignments/parameterHash'
+      );
+    });
+
+    it('omits parameterHash from existenceCondition when no parameters', () => {
+      const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet', resources: [] })) as any;
+      const ec = policy.properties.policyRule.then.details.existenceCondition;
+      expect(ec.allOf.length).toBe(1);
+      expect(ec.allOf[0].field).toContain('complianceStatus');
     });
   });
 
