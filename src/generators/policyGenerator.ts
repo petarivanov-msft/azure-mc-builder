@@ -67,7 +67,6 @@ function generateAuditThen(configName: string): object {
 function buildConfigurationParameters(config: ConfigurationState): Array<{ name: string; value: string }> {
   const params: Array<{ name: string; value: string }> = [];
   for (const resource of config.resources) {
-    const schema = (globalThis as any).__mcSchemas?.[resource.schemaName];
     // For each property that has a value, it could be wired as a policy parameter.
     // The convention is: [ResourceType]InstanceName;PropertyName
     // We emit them as static values in the template; policy-level parameterization
@@ -217,7 +216,6 @@ function generateDeployThen(config: ConfigurationState): object {
 export function generatePolicyJson(config: ConfigurationState): object {
   const isWindows = config.platform === 'Windows';
   const isRemediation = config.mode === 'AuditAndSet';
-  const effectLabel = isRemediation ? 'DeployIfNotExists' : 'AuditIfNotExists';
 
   return {
     properties: {
