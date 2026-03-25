@@ -117,7 +117,7 @@ function generateDeployThen(config: ConfigurationState): object {
             },
             resources: [
               {
-                apiVersion: '2020-06-25',
+                apiVersion: '2024-04-05',
                 type: 'Microsoft.Compute/virtualMachines/providers/guestConfigurationAssignments',
                 name: "[concat(parameters('vmName'), '/Microsoft.GuestConfiguration/', parameters('configurationName'))]",
                 location: "[parameters('location')]",
@@ -133,7 +133,7 @@ function generateDeployThen(config: ConfigurationState): object {
                 },
               },
               {
-                apiVersion: '2017-03-30',
+                apiVersion: '2024-03-01',
                 type: 'Microsoft.Compute/virtualMachines',
                 identity: {
                   type: 'SystemAssigned',
@@ -142,7 +142,7 @@ function generateDeployThen(config: ConfigurationState): object {
                 location: "[parameters('location')]",
               },
               {
-                apiVersion: '2015-05-01-preview',
+                apiVersion: '2024-03-01',
                 name: `[concat(parameters('vmName'), '/${extensionName}')]`,
                 type: 'Microsoft.Compute/virtualMachines/extensions',
                 location: "[parameters('location')]",
