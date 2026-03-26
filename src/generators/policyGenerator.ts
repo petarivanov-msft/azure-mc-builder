@@ -143,6 +143,9 @@ function generateDeployThen(config: ConfigurationState): object {
             location: {
               value: "[field('location')]",
             },
+            type: {
+              value: "[field('type')]",
+            },
             configurationName: {
               value: config.configName,
             },
@@ -159,16 +162,19 @@ function generateDeployThen(config: ConfigurationState): object {
             parameters: {
               vmName: { type: 'string' },
               location: { type: 'string' },
+              type: { type: 'string' },
               configurationName: { type: 'string' },
               contentUri: { type: 'string' },
               contentHash: { type: 'string' },
             },
             resources: [
+              // Arc (HybridCompute) GC assignment — only deploys for Arc machines
               {
                 apiVersion: '2024-04-05',
-                type: 'Microsoft.Compute/virtualMachines/providers/guestConfigurationAssignments',
+                type: 'Microsoft.HybridCompute/machines/providers/guestConfigurationAssignments',
                 name: "[concat(parameters('vmName'), '/Microsoft.GuestConfiguration/', parameters('configurationName'))]",
                 location: "[parameters('location')]",
+                condition: "[equals(toLower(parameters('type')), toLower('Microsoft.HybridCompute/machines'))]",
                 properties: {
                   guestConfiguration: {
                     name: "[parameters('configurationName')]",
@@ -180,6 +186,25 @@ function generateDeployThen(config: ConfigurationState): object {
                   },
                 },
               },
+              // Azure VM GC assignment — only deploys for Azure VMs
+              {
+                apiVersion: '2024-04-05',
+                type: 'Microsoft.Compute/virtualMachines/providers/guestConfigurationAssignments',
+                name: "[concat(parameters('vmName'), '/Microsoft.GuestConfiguration/', parameters('configurationName'))]",
+                location: "[parameters('location')]",
+                condition: "[equals(toLower(parameters('type')), toLower('Microsoft.Compute/virtualMachines'))]",
+                properties: {
+                  guestConfiguration: {
+                    name: "[parameters('configurationName')]",
+                    version: config.version,
+                    contentUri: "[parameters('contentUri')]",
+                    contentHash: "[parameters('contentHash')]",
+                    assignmentType: assignmentType,
+                    configurationParameter: configParams.length > 0 ? configParams : [],
+                  },
+                },
+              },
+              // Azure VM — system-assigned managed identity (VM only)
               {
                 apiVersion: '2024-03-01',
                 type: 'Microsoft.Compute/virtualMachines',
@@ -188,12 +213,15 @@ function generateDeployThen(config: ConfigurationState): object {
                 },
                 name: "[parameters('vmName')]",
                 location: "[parameters('location')]",
+                condition: "[equals(toLower(parameters('type')), toLower('Microsoft.Compute/virtualMachines'))]",
               },
+              // Azure VM — GC extension (VM only, Arc has it built-in)
               {
                 apiVersion: '2024-03-01',
                 name: `[concat(parameters('vmName'), '/${extensionName}')]`,
                 type: 'Microsoft.Compute/virtualMachines/extensions',
                 location: "[parameters('location')]",
+                condition: "[equals(toLower(parameters('type')), toLower('Microsoft.Compute/virtualMachines'))]",
                 properties: {
                   publisher: 'Microsoft.GuestConfiguration',
                   type: extensionType,

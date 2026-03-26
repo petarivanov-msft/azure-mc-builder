@@ -72,7 +72,7 @@ describe('policyGenerator', () => {
       expect(deployment.properties.template.$schema).toContain('deploymentTemplate.json');
     });
 
-    it('deploys guestConfigurationAssignment with ApplyAndAutoCorrect', () => {
+    it('deploys VM guestConfigurationAssignment with ApplyAndAutoCorrect', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet' })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
       const gcAssignment = resources.find((r: any) =>
@@ -80,32 +80,54 @@ describe('policyGenerator', () => {
       );
       expect(gcAssignment).toBeDefined();
       expect(gcAssignment.properties.guestConfiguration.assignmentType).toBe('ApplyAndAutoCorrect');
+      expect(gcAssignment.condition).toContain('Microsoft.Compute/virtualMachines');
     });
 
-    it('deploys system-assigned managed identity on VM', () => {
+    it('deploys Arc guestConfigurationAssignment with ApplyAndAutoCorrect', () => {
+      const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet' })) as any;
+      const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
+      const arcAssignment = resources.find((r: any) =>
+        r.type === 'Microsoft.HybridCompute/machines/providers/guestConfigurationAssignments'
+      );
+      expect(arcAssignment).toBeDefined();
+      expect(arcAssignment.properties.guestConfiguration.assignmentType).toBe('ApplyAndAutoCorrect');
+      expect(arcAssignment.condition).toContain('Microsoft.HybridCompute/machines');
+    });
+
+    it('deploys system-assigned managed identity on VM only (not Arc)', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet' })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
       const vmResource = resources.find((r: any) => r.type === 'Microsoft.Compute/virtualMachines');
       expect(vmResource).toBeDefined();
       expect(vmResource.identity.type).toBe('SystemAssigned');
+      expect(vmResource.condition).toContain('Microsoft.Compute/virtualMachines');
     });
 
-    it('deploys Windows MC extension for Windows platform', () => {
+    it('passes resource type as template parameter', () => {
+      const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet' })) as any;
+      const params = policy.properties.policyRule.then.details.deployment.properties.parameters;
+      expect(params.type).toBeDefined();
+      expect(params.type.value).toBe("[field('type')]");
+    });
+
+    it('deploys Windows MC extension for Windows platform (VM only)', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet', platform: 'Windows' })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
       const ext = resources.find((r: any) => r.type === 'Microsoft.Compute/virtualMachines/extensions');
       expect(ext).toBeDefined();
       expect(ext.properties.type).toBe('ConfigurationforWindows');
       expect(ext.name).toContain('AzurePolicyforWindows');
+      expect(ext.condition).toContain('Microsoft.Compute/virtualMachines');
     });
 
-    it('deploys Linux MC extension for Linux platform', () => {
+    it('deploys Linux MC extension for Linux platform (VM only)', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet', platform: 'Linux' })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
       const ext = resources.find((r: any) => r.type === 'Microsoft.Compute/virtualMachines/extensions');
       expect(ext).toBeDefined();
       expect(ext.properties.type).toBe('ConfigurationforLinux');
       expect(ext.name).toContain('AzurePolicyforLinux');
+      expect(ext.condition).toContain('Microsoft.Compute/virtualMachines');
     });
 
     it('uses typeHandlerVersion 1.* for auto-upgrade compatibility', () => {
