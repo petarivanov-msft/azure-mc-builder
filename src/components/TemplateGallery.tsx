@@ -3,7 +3,6 @@ import {
   Button, Badge, Input, Tooltip,
   Dialog, DialogTrigger, DialogSurface, DialogTitle, DialogBody, DialogContent, DialogActions,
   TabList, Tab,
-  Card,
 } from '@fluentui/react-components';
 import { templates, TemplateInfo } from '../templates';
 import { schemasByName } from '../schemas';
@@ -22,6 +21,15 @@ function getModules(t: TemplateInfo): string[] {
   }));
   return [...mods].sort();
 }
+
+const cardStyle: React.CSSProperties = {
+  border: '1px solid #e0e0e0',
+  borderRadius: '10px',
+  padding: '20px',
+  boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+  transition: 'border-color 0.15s, box-shadow 0.2s, transform 0.15s',
+  background: '#fff',
+};
 
 export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ open, onClose, onLoad }) => {
   const [filter, setFilter] = useState<'All' | 'Windows' | 'Linux'>('All');
@@ -49,16 +57,16 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ open, onClose,
 
   return (
     <Dialog open={open} onOpenChange={(_, d) => { if (!d.open) onClose(); }}>
-      <DialogSurface style={{ maxWidth: '720px', maxHeight: '85vh' }}>
+      <DialogSurface style={{ maxWidth: '800px', width: '90vw', maxHeight: '90vh' }}>
         <DialogBody>
-          <DialogTitle>Template Gallery</DialogTitle>
+          <DialogTitle style={{ fontSize: '20px', fontWeight: 700 }}>Template Gallery</DialogTitle>
           <DialogContent>
-            <p style={{ color: '#666', marginBottom: '12px', fontSize: '13px' }}>
+            <p style={{ color: '#555', marginBottom: '16px', fontSize: '14px', lineHeight: '1.5' }}>
               Load a pre-built configuration template. This replaces your current configuration.
             </p>
 
             {/* Filter bar */}
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px' }}>
               <TabList
                 size="small"
                 selectedValue={filter}
@@ -78,87 +86,86 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ open, onClose,
             </div>
 
             {/* Template cards */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '55vh', overflowY: 'auto', padding: '4px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '60vh', overflowY: 'auto', padding: '4px 4px 4px 0' }}>
               {filtered.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '32px', color: '#999' }}>
+                <div style={{ textAlign: 'center', padding: '40px', color: '#999', fontSize: '14px' }}>
                   No templates match your search.
                 </div>
               )}
               {filtered.map(t => {
                 const isExpanded = expanded === t.name;
                 const modules = getModules(t);
-                const platformColor = t.platform === 'Windows' ? '#0078d4' : '#16a34a';
-                const platformBg = t.platform === 'Windows' ? '#e8f4fd' : '#dcfce7';
-                const modeBg = t.config.mode === 'AuditAndSet' ? '#fff3cd' : '#f0f0f0';
-                const modeColor = t.config.mode === 'AuditAndSet' ? '#856404' : '#555';
+                const isWindows = t.platform === 'Windows';
+                const platformColor = isWindows ? '#0078d4' : '#16a34a';
+                const platformBg = isWindows ? '#e8f4fd' : '#dcfce7';
+                const isRemediation = t.config.mode === 'AuditAndSet';
+
                 return (
-                  <Card
+                  <div
                     key={t.name}
                     style={{
-                      cursor: 'pointer',
-                      border: '1px solid #e0e0e0',
+                      ...cardStyle,
                       borderLeft: `4px solid ${platformColor}`,
-                      borderRadius: '8px',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-                      transition: 'border-color 0.15s, box-shadow 0.15s, transform 0.15s',
-                      padding: '16px',
                     }}
                     onMouseEnter={e => {
-                      e.currentTarget.style.borderColor = platformColor;
-                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                      e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.12)';
                       e.currentTarget.style.transform = 'translateY(-1px)';
                     }}
                     onMouseLeave={e => {
-                      e.currentTarget.style.borderColor = '#e0e0e0';
-                      e.currentTarget.style.borderLeftColor = platformColor;
-                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)';
+                      e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)';
                       e.currentTarget.style.transform = '';
                     }}
                   >
-                    {/* Title row */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                      <strong style={{ fontSize: '15px', lineHeight: '1.4', flex: 1, marginRight: '12px' }}>{t.name}</strong>
+                    {/* Header: title + badges */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '10px' }}>
+                      <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, lineHeight: '1.3', flex: 1 }}>
+                        {t.name}
+                      </h3>
                       <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
                         <span style={{
                           fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '12px',
-                          background: platformBg, color: platformColor,
+                          background: platformBg, color: platformColor, whiteSpace: 'nowrap',
                         }}>
                           {t.platform}
                         </span>
                         <span style={{
                           fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '12px',
-                          background: modeBg, color: modeColor,
+                          background: isRemediation ? '#fff3cd' : '#f0f0f0',
+                          color: isRemediation ? '#856404' : '#555',
+                          whiteSpace: 'nowrap',
                         }}>
-                          {t.config.mode === 'AuditAndSet' ? 'Remediation' : 'Audit'}
+                          {isRemediation ? 'Remediation' : 'Audit'}
                         </span>
                         <span style={{
                           fontSize: '11px', fontWeight: 500, padding: '3px 10px', borderRadius: '12px',
-                          background: '#f0f0f0', color: '#555',
+                          background: '#f0f0f0', color: '#555', whiteSpace: 'nowrap',
                         }}>
                           {t.resourceCount} resource{t.resourceCount !== 1 ? 's' : ''}
                         </span>
                       </div>
                     </div>
 
-                    {/* Description */}
-                    <div style={{ fontSize: '13.5px', color: '#444', lineHeight: '1.5', marginBottom: '12px' }}>
+                    {/* Description — full text, no clipping */}
+                    <p style={{ margin: '0 0 14px 0', fontSize: '14px', color: '#444', lineHeight: '1.55' }}>
                       {t.description}
-                    </div>
+                    </p>
 
                     {/* Module badges */}
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
-                      {modules.map(m => (
-                        <Badge key={m} appearance="tint" size="small" color="brand">{m}</Badge>
-                      ))}
-                    </div>
+                    {modules.length > 0 && (
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                        {modules.map(m => (
+                          <Badge key={m} appearance="tint" size="small" color="brand">{m}</Badge>
+                        ))}
+                      </div>
+                    )}
 
-                    {/* Expandable details + Load button row */}
+                    {/* Actions row */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Button
                         size="small"
                         appearance="subtle"
-                        onClick={(e) => { e.stopPropagation(); setExpanded(isExpanded ? null : t.name); }}
-                        style={{ padding: '2px 8px', fontSize: '12px', color: '#0078d4' }}
+                        onClick={() => setExpanded(isExpanded ? null : t.name)}
+                        style={{ padding: '4px 10px', fontSize: '12px', color: '#0078d4', fontWeight: 500 }}
                       >
                         {isExpanded ? '▾ Hide details' : '▸ Show resources'}
                       </Button>
@@ -166,21 +173,26 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ open, onClose,
                         <Button
                           size="small"
                           appearance="primary"
-                          onClick={(e) => { e.stopPropagation(); handleLoad(t); }}
+                          onClick={() => handleLoad(t)}
                         >
                           Load Template
                         </Button>
                       </Tooltip>
                     </div>
 
+                    {/* Expanded resource table */}
                     {isExpanded && (
-                      <div style={{ marginTop: '12px', padding: '12px 14px', background: '#fafafa', borderRadius: '6px', fontSize: '12px', border: '1px solid #eee' }}>
+                      <div style={{
+                        marginTop: '14px', padding: '14px 16px',
+                        background: '#fafafa', borderRadius: '8px',
+                        fontSize: '13px', border: '1px solid #eee',
+                      }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                           <thead>
-                            <tr style={{ borderBottom: '1px solid #ddd' }}>
-                              <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Resource Type</th>
-                              <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Instance Name</th>
-                              <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Key Property</th>
+                            <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
+                              <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: '12px', color: '#333' }}>Resource Type</th>
+                              <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: '12px', color: '#333' }}>Instance Name</th>
+                              <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: '12px', color: '#333' }}>Key Property</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -190,13 +202,16 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ open, onClose,
                               const keyVal = keyProp ? String(r.properties[keyProp.name] ?? '') : '';
                               return (
                                 <tr key={r.id} style={{ borderBottom: '1px solid #eee' }}>
-                                  <td style={{ padding: '5px 8px' }}>
-                                    <code style={{ fontSize: '11px', background: '#e8f0fe', padding: '2px 6px', borderRadius: '4px', color: '#1a56db' }}>
+                                  <td style={{ padding: '6px 8px' }}>
+                                    <code style={{
+                                      fontSize: '12px', background: '#e8f0fe',
+                                      padding: '2px 8px', borderRadius: '4px', color: '#1a56db',
+                                    }}>
                                       {r.schemaName}
                                     </code>
                                   </td>
-                                  <td style={{ padding: '5px 8px' }}>{r.instanceName}</td>
-                                  <td style={{ padding: '5px 8px', color: '#555', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  <td style={{ padding: '6px 8px' }}>{r.instanceName}</td>
+                                  <td style={{ padding: '6px 8px', color: '#555', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {keyVal.length > 50 ? keyVal.slice(0, 47) + '...' : keyVal}
                                   </td>
                                 </tr>
@@ -206,7 +221,7 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ open, onClose,
                         </table>
                       </div>
                     )}
-                  </Card>
+                  </div>
                 );
               })}
             </div>
