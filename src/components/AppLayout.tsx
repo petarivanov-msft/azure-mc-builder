@@ -3,7 +3,6 @@ import {
   FluentProvider, webLightTheme,
   Button, Badge, Tooltip,
   MessageBar, MessageBarBody,
-  Dialog, DialogTrigger, DialogSurface, DialogTitle, DialogBody, DialogContent, DialogActions,
 } from '@fluentui/react-components';
 import { ConfigHeader } from './ConfigHeader';
 import { ResourcePicker } from './ResourcePicker';
@@ -11,13 +10,16 @@ import { ResourceList } from './ResourceList';
 import { PropertyPanel } from './PropertyPanel';
 import { OutputPreview } from './OutputPreview';
 import { GuideDialog } from './GuideDialog';
+import { TemplateGallery } from './TemplateGallery';
 import { useConfigStore } from '../store/configStore';
 import { generateBundle } from '../generators';
-import { templates } from '../templates';
 
 const App: React.FC = () => {
   const store = useConfigStore();
-  const errors = useMemo(() => store.validate(), [store.configName, store.platform, store.mode, store.resources, store.version]);
+  const { configName, platform, mode, resources, version, validate } = store;
+  // validate() uses get() internally — we list fields explicitly for reactivity
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const errors = useMemo(() => validate(), [configName, platform, mode, resources, version, validate]);
   const errorCount = errors.filter(e => e.level === 'error').length;
   const warnCount = errors.filter(e => e.level === 'warning').length;
 
@@ -194,44 +196,12 @@ const App: React.FC = () => {
         {/* Guide dialog */}
         <GuideDialog open={guideOpen} onClose={() => setGuideOpen(false)} />
 
-        {/* Template dialog */}
-        <Dialog open={templateOpen} onOpenChange={(_, d) => setTemplateOpen(d.open)}>
-          <DialogSurface style={{ maxWidth: '600px' }}>
-            <DialogBody>
-              <DialogTitle>Start from Template</DialogTitle>
-              <DialogContent>
-                <p style={{ color: '#666', marginBottom: '16px', fontSize: '13px' }}>
-                  This will replace your current configuration. Make sure to export first if needed.
-                </p>
-                {templates.map(t => (
-                  <div
-                    key={t.name}
-                    style={{
-                      padding: '14px 16px', marginBottom: '8px',
-                      border: '1px solid #e0e0e0', borderRadius: '6px',
-                      cursor: 'pointer',
-                      transition: 'border-color 0.15s, background 0.15s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#0078d4'; e.currentTarget.style.background = '#f8fbff'; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#e0e0e0'; e.currentTarget.style.background = ''; }}
-                    onClick={() => { store.loadTemplate(t.config); setTemplateOpen(false); }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong style={{ fontSize: '14px' }}>{t.name}</strong>
-                      <Badge appearance="outline" size="small">{t.platform} · {t.resourceCount}</Badge>
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#666', marginTop: '6px' }}>{t.description}</div>
-                  </div>
-                ))}
-              </DialogContent>
-              <DialogActions>
-                <DialogTrigger disableButtonEnhancement>
-                  <Button appearance="secondary">Cancel</Button>
-                </DialogTrigger>
-              </DialogActions>
-            </DialogBody>
-          </DialogSurface>
-        </Dialog>
+        {/* Template gallery */}
+        <TemplateGallery
+          open={templateOpen}
+          onClose={() => setTemplateOpen(false)}
+          onLoad={(config) => store.loadTemplate(config)}
+        />
       </div>
     </FluentProvider>
   );
