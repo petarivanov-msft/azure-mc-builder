@@ -154,6 +154,7 @@ Write-Host ''
 Write-Host '⚠️  VM Prerequisites — assign this built-in initiative at subscription level:' -ForegroundColor Yellow
 Write-Host '   "Deploy prerequisites to enable Guest Configuration policies on virtual machines"'
 Write-Host '   Initiative ID: 12794019-7a00-42cf-95c2-882eed337cc8'
+Write-Host '   Note: Arc-enabled servers already include the GC agent — no prerequisites needed.' -ForegroundColor Gray
 Write-Host ''
 `;
 }
