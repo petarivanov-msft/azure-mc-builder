@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Dialog, DialogTrigger, DialogSurface, DialogTitle, DialogBody, DialogActions, DialogContent,
-  Button, Input, Label,
+  Button, Input, Label, Tooltip,
 } from '@fluentui/react-components';
 import { useConfigStore } from '../store/configStore';
 import { getSchemasByCategory } from '../schemas';
@@ -58,16 +58,16 @@ export const ResourcePicker: React.FC = () => {
                   </Label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
                     {filtered.map(schema => (
-                      <Button
-                        key={schema.resourceName}
-                        appearance="outline"
-                        size="small"
-                        onClick={() => handleAdd(schema)}
-                        title={schema.description}
-                        style={{ fontSize: '13px' }}
-                      >
-                        {schema.resourceName}
-                      </Button>
+                      <Tooltip key={schema.resourceName} content={`${schema.description} (${schema.moduleName})`} relationship="description">
+                        <Button
+                          appearance="outline"
+                          size="small"
+                          onClick={() => handleAdd(schema)}
+                          style={{ fontSize: '13px' }}
+                        >
+                          {schema.resourceName}
+                        </Button>
+                      </Tooltip>
                     ))}
                   </div>
                 </div>

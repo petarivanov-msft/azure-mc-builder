@@ -40,6 +40,9 @@ import { nxFileLineSchema } from './linux/nxFileLine';
 import { nxFileContentReplaceSchema } from './linux/nxFileContentReplace';
 import { nxServiceSchema } from './linux/nxService';
 import { nxScriptSchema } from './linux/nxScript';
+import { nxSysctlSchema } from './linux/nxSysctl';
+import { nxCronJobSchema } from './linux/nxCronJob';
+import { nxFirewallSchema } from './linux/nxFirewall';
 
 export const allSchemas: ResourceSchema[] = [
   // Windows — Built-in (PSDscResources)
@@ -58,6 +61,7 @@ export const allSchemas: ResourceSchema[] = [
   // Linux
   nxFileSchema, nxGroupSchema, nxUserSchema, nxPackageSchema,
   nxFileLineSchema, nxFileContentReplaceSchema, nxServiceSchema, nxScriptSchema,
+  nxSysctlSchema, nxCronJobSchema, nxFirewallSchema,
 ];
 
 export const schemasByName: Record<string, ResourceSchema> = Object.fromEntries(
@@ -111,4 +115,5 @@ export {
   // Linux
   nxFileSchema, nxGroupSchema, nxUserSchema, nxPackageSchema,
   nxFileLineSchema, nxFileContentReplaceSchema, nxServiceSchema, nxScriptSchema,
+  nxSysctlSchema, nxCronJobSchema, nxFirewallSchema,
 };

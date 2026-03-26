@@ -27,6 +27,23 @@ export const PropertyPanel: React.FC = () => {
 
   const renderProperty = (prop: typeof schema.properties[0]) => {
     const value = resource.properties[prop.name];
+    const isEmpty = value === undefined || value === null || value === '';
+    const showRequired = prop.required && isEmpty;
+
+    // Regex validation
+    let patternError = '';
+    if (prop.validationPattern && value && typeof value === 'string') {
+      if (!new RegExp(prop.validationPattern).test(value)) {
+        patternError = prop.validationMessage || 'Invalid format';
+      }
+    }
+    // Integer validation
+    let intError = '';
+    if (prop.type === 'integer' && value !== undefined && value !== '' && isNaN(Number(value))) {
+      intError = 'Must be a number';
+    }
+
+    const fieldError = showRequired ? 'This field is required' : patternError || intError;
 
     if (prop.type === 'boolean') {
       return (
@@ -125,9 +142,13 @@ export const PropertyPanel: React.FC = () => {
           }}
           placeholder={prop.placeholder || prop.description}
           size="small"
-          style={{ width: '100%' }}
+          style={{ width: '100%', ...(fieldError ? { borderColor: '#c50f1f' } : {}) }}
         />
-        <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>{prop.description}</div>
+        {fieldError ? (
+          <div style={{ fontSize: '11px', color: '#c50f1f', marginTop: '2px' }}>{fieldError}</div>
+        ) : (
+          <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>{prop.description}</div>
+        )}
       </div>
     );
   };

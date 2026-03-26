@@ -27,7 +27,13 @@ const App: React.FC = () => {
   const [guideOpen, setGuideOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [welcomeDismissed, setWelcomeDismissed] = useState(() => localStorage.getItem('mc-builder-welcome-dismissed') === '1');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const dismissWelcome = () => {
+    setWelcomeDismissed(true);
+    localStorage.setItem('mc-builder-welcome-dismissed', '1');
+  };
 
   const handleDownload = async () => {
     if (errorCount > 0) return;
@@ -158,6 +164,30 @@ const App: React.FC = () => {
             <MessageBar intent="error">
               <MessageBarBody>Import failed: {importError}</MessageBarBody>
             </MessageBar>
+          </div>
+        )}
+
+        {/* Welcome banner for new users */}
+        {!welcomeDismissed && store.resources.length === 0 && (
+          <div style={{
+            margin: '16px 20px', padding: '20px 24px', background: '#f0f7ff',
+            border: '1px solid #b3d7ff', borderRadius: '8px', position: 'relative',
+          }}>
+            <button onClick={dismissWelcome} style={{
+              position: 'absolute', top: '8px', right: '12px', background: 'none',
+              border: 'none', fontSize: '18px', cursor: 'pointer', color: '#666', lineHeight: 1,
+            }}>✕</button>
+            <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px', color: '#0078d4' }}>
+              Welcome to Azure MC Builder!
+            </div>
+            <div style={{ fontSize: '14px', color: '#444', lineHeight: 1.6, marginBottom: '14px' }}>
+              Start by loading a <strong>Template</strong> for a pre-built baseline, or click <strong>+ Add Resource</strong> to build from scratch.
+              Need help? Click <strong>Guide</strong> for step-by-step deployment instructions.
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <Button appearance="primary" size="small" onClick={() => setTemplateOpen(true)}>Browse Templates</Button>
+              <Button appearance="outline" size="small" onClick={() => setGuideOpen(true)}>Read Guide</Button>
+            </div>
           </div>
         )}
 

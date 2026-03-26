@@ -119,6 +119,41 @@ New-AzPolicyAssignment -Name 'MyConfig' \\
           </div>
           <p style={{ ...p, fontSize: '12px', color: '#666' }}>This single initiative handles everything — MC extension (Windows &amp; Linux) and system-assigned managed identity. The GC agent starts evaluating within 15 minutes.</p>
 
+          {/* Terminology Glossary */}
+          <h2 style={h2}>Terminology Glossary</h2>
+          <p style={p}>If you come from Group Policy (Windows) or Ansible (Linux), here's how DSC concepts map:</p>
+          <table style={{ width: '100%', fontSize: '12.5px', borderCollapse: 'collapse', margin: '8px 0 16px' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', borderBottom: '2px solid #e0e0e0', background: '#f9f9f9' }}>
+                <th style={{ padding: '6px 8px' }}>DSC / Azure Term</th>
+                <th style={{ padding: '6px 8px' }}>Windows Equiv.</th>
+                <th style={{ padding: '6px 8px' }}>Linux Equiv.</th>
+                <th style={{ padding: '6px 8px' }}>Plain English</th>
+              </tr>
+            </thead>
+            <tbody>
+              {([
+                ['Resource', 'GPO setting', 'Ansible task/module', 'A single thing to check or configure'],
+                ['MOF', '—', '—', 'Compiled config file the agent reads'],
+                ['Ensure: Present', 'Feature installed', 'Package installed', 'Make sure it exists'],
+                ['Ensure: Absent', 'Feature removed', 'Package removed', 'Make sure it doesn\'t exist'],
+                ['nxFile', '—', '/etc/… config files', 'Manage file content, perms, ownership'],
+                ['nxService', 'Windows Service', 'systemd unit', 'Control a background service'],
+                ['nxPackage', 'MSI / Cab', 'apt / yum / dnf', 'Install or remove software'],
+                ['Registry', 'regedit keys', 'sysctl / config files', 'System configuration values'],
+                ['Audit', 'Report only', '--check in Ansible', 'Check without changing anything'],
+                ['AuditAndSet', 'Auto-remediate', 'Ansible enforce', 'Fix drift automatically'],
+              ] as const).map(([term, win, linux, plain], i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                  <td style={{ padding: '5px 8px', fontWeight: 600 }}>{term}</td>
+                  <td style={{ padding: '5px 8px' }}>{win}</td>
+                  <td style={{ padding: '5px 8px' }}>{linux}</td>
+                  <td style={{ padding: '5px 8px', color: '#555' }}>{plain}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
           {/* Tips */}
           <h2 style={h2}>Tips</h2>
           <div style={tip}>
