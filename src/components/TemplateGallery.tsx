@@ -3,7 +3,7 @@ import {
   Button, Badge, Input, Tooltip,
   Dialog, DialogTrigger, DialogSurface, DialogTitle, DialogBody, DialogContent, DialogActions,
   TabList, Tab,
-  Card, CardHeader,
+  Card,
 } from '@fluentui/react-components';
 import { templates, TemplateInfo } from '../templates';
 import { schemasByName } from '../schemas';
@@ -78,7 +78,7 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ open, onClose,
             </div>
 
             {/* Template cards */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '55vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '55vh', overflowY: 'auto', padding: '4px' }}>
               {filtered.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '32px', color: '#999' }}>
                   No templates match your search.
@@ -87,121 +87,125 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ open, onClose,
               {filtered.map(t => {
                 const isExpanded = expanded === t.name;
                 const modules = getModules(t);
+                const platformColor = t.platform === 'Windows' ? '#0078d4' : '#16a34a';
+                const platformBg = t.platform === 'Windows' ? '#e8f4fd' : '#dcfce7';
+                const modeBg = t.config.mode === 'AuditAndSet' ? '#fff3cd' : '#f0f0f0';
+                const modeColor = t.config.mode === 'AuditAndSet' ? '#856404' : '#555';
                 return (
                   <Card
                     key={t.name}
                     style={{
                       cursor: 'pointer',
                       border: '1px solid #e0e0e0',
-                      transition: 'border-color 0.15s, box-shadow 0.15s',
+                      borderLeft: `4px solid ${platformColor}`,
+                      borderRadius: '8px',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                      transition: 'border-color 0.15s, box-shadow 0.15s, transform 0.15s',
+                      padding: '16px',
                     }}
                     onMouseEnter={e => {
-                      e.currentTarget.style.borderColor = '#0078d4';
-                      e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,120,212,0.15)';
+                      e.currentTarget.style.borderColor = platformColor;
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
                     }}
                     onMouseLeave={e => {
                       e.currentTarget.style.borderColor = '#e0e0e0';
-                      e.currentTarget.style.boxShadow = '';
+                      e.currentTarget.style.borderLeftColor = platformColor;
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)';
+                      e.currentTarget.style.transform = '';
                     }}
                   >
-                    <CardHeader
-                      header={
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                          <strong style={{ fontSize: '14px' }}>{t.name}</strong>
-                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                            <Badge
-                              appearance="outline"
-                              size="small"
-                              color={t.platform === 'Windows' ? 'informative' : 'success'}
-                            >
-                              {t.platform}
-                            </Badge>
-                            <Badge appearance="outline" size="small">
-                              {t.resourceCount} resource{t.resourceCount !== 1 ? 's' : ''}
-                            </Badge>
-                            <Badge
-                              appearance="outline"
-                              size="small"
-                              color={t.config.mode === 'AuditAndSet' ? 'warning' : 'subtle'}
-                            >
-                              {t.config.mode === 'AuditAndSet' ? 'Remediation' : 'Audit'}
-                            </Badge>
-                          </div>
-                        </div>
-                      }
-                      description={
-                        <div>
-                          <div style={{ fontSize: '13px', color: '#666', marginTop: '4px' }}>{t.description}</div>
+                    {/* Title row */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <strong style={{ fontSize: '15px', lineHeight: '1.4', flex: 1, marginRight: '12px' }}>{t.name}</strong>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                        <span style={{
+                          fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '12px',
+                          background: platformBg, color: platformColor,
+                        }}>
+                          {t.platform}
+                        </span>
+                        <span style={{
+                          fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '12px',
+                          background: modeBg, color: modeColor,
+                        }}>
+                          {t.config.mode === 'AuditAndSet' ? 'Remediation' : 'Audit'}
+                        </span>
+                        <span style={{
+                          fontSize: '11px', fontWeight: 500, padding: '3px 10px', borderRadius: '12px',
+                          background: '#f0f0f0', color: '#555',
+                        }}>
+                          {t.resourceCount} resource{t.resourceCount !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    </div>
 
-                          {/* Module badges */}
-                          <div style={{ display: 'flex', gap: '4px', marginTop: '8px', flexWrap: 'wrap' }}>
-                            {modules.map(m => (
-                              <Badge key={m} appearance="tint" size="small" color="brand">{m}</Badge>
-                            ))}
-                          </div>
+                    {/* Description */}
+                    <div style={{ fontSize: '13.5px', color: '#444', lineHeight: '1.5', marginBottom: '12px' }}>
+                      {t.description}
+                    </div>
 
-                          {/* Expandable details */}
-                          <div style={{ marginTop: '8px' }}>
-                            <Button
-                              size="small"
-                              appearance="subtle"
-                              onClick={(e) => { e.stopPropagation(); setExpanded(isExpanded ? null : t.name); }}
-                              style={{ padding: '2px 6px', fontSize: '12px' }}
-                            >
-                              {isExpanded ? '▾ Hide details' : '▸ Show resources'}
-                            </Button>
+                    {/* Module badges */}
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                      {modules.map(m => (
+                        <Badge key={m} appearance="tint" size="small" color="brand">{m}</Badge>
+                      ))}
+                    </div>
 
-                            {isExpanded && (
-                              <div style={{ marginTop: '8px', padding: '8px 12px', background: '#f8f8f8', borderRadius: '4px', fontSize: '12px' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                  <thead>
-                                    <tr style={{ borderBottom: '1px solid #ddd' }}>
-                                      <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 600 }}>Resource Type</th>
-                                      <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 600 }}>Instance Name</th>
-                                      <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 600 }}>Key Property</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {t.config.resources.map(r => {
-                                      const schema = schemasByName[r.schemaName];
-                                      // Show the first required property value as "key"
-                                      const keyProp = schema?.properties.find(p => p.required);
-                                      const keyVal = keyProp ? String(r.properties[keyProp.name] ?? '') : '';
-                                      return (
-                                        <tr key={r.id} style={{ borderBottom: '1px solid #eee' }}>
-                                          <td style={{ padding: '3px 8px' }}>
-                                            <code style={{ fontSize: '11px', background: '#eef', padding: '1px 4px', borderRadius: '3px' }}>
-                                              {r.schemaName}
-                                            </code>
-                                          </td>
-                                          <td style={{ padding: '3px 8px' }}>{r.instanceName}</td>
-                                          <td style={{ padding: '3px 8px', color: '#555', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {keyVal.length > 50 ? keyVal.slice(0, 47) + '...' : keyVal}
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
-                          </div>
+                    {/* Expandable details + Load button row */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Button
+                        size="small"
+                        appearance="subtle"
+                        onClick={(e) => { e.stopPropagation(); setExpanded(isExpanded ? null : t.name); }}
+                        style={{ padding: '2px 8px', fontSize: '12px', color: '#0078d4' }}
+                      >
+                        {isExpanded ? '▾ Hide details' : '▸ Show resources'}
+                      </Button>
+                      <Tooltip content="Replace current config with this template" relationship="label">
+                        <Button
+                          size="small"
+                          appearance="primary"
+                          onClick={(e) => { e.stopPropagation(); handleLoad(t); }}
+                        >
+                          Load Template
+                        </Button>
+                      </Tooltip>
+                    </div>
 
-                          {/* Load button */}
-                          <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
-                            <Tooltip content="Replace current config with this template" relationship="label">
-                              <Button
-                                size="small"
-                                appearance="primary"
-                                onClick={(e) => { e.stopPropagation(); handleLoad(t); }}
-                              >
-                                Load Template
-                              </Button>
-                            </Tooltip>
-                          </div>
-                        </div>
-                      }
-                    />
+                    {isExpanded && (
+                      <div style={{ marginTop: '12px', padding: '12px 14px', background: '#fafafa', borderRadius: '6px', fontSize: '12px', border: '1px solid #eee' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid #ddd' }}>
+                              <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Resource Type</th>
+                              <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Instance Name</th>
+                              <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Key Property</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {t.config.resources.map(r => {
+                              const schema = schemasByName[r.schemaName];
+                              const keyProp = schema?.properties.find(p => p.required);
+                              const keyVal = keyProp ? String(r.properties[keyProp.name] ?? '') : '';
+                              return (
+                                <tr key={r.id} style={{ borderBottom: '1px solid #eee' }}>
+                                  <td style={{ padding: '5px 8px' }}>
+                                    <code style={{ fontSize: '11px', background: '#e8f0fe', padding: '2px 6px', borderRadius: '4px', color: '#1a56db' }}>
+                                      {r.schemaName}
+                                    </code>
+                                  </td>
+                                  <td style={{ padding: '5px 8px' }}>{r.instanceName}</td>
+                                  <td style={{ padding: '5px 8px', color: '#555', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {keyVal.length > 50 ? keyVal.slice(0, 47) + '...' : keyVal}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </Card>
                 );
               })}
