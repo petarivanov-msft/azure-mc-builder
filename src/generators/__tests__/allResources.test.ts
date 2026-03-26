@@ -590,12 +590,12 @@ describe('Resource count', () => {
     expect(allSchemas.filter(s => s.platform === 'Windows').length).toBe(21);
   });
 
-  it('has 11 Linux resources', () => {
-    expect(allSchemas.filter(s => s.platform === 'Linux').length).toBe(11);
+  it('has 8 Linux resources', () => {
+    expect(allSchemas.filter(s => s.platform === 'Linux').length).toBe(8);
   });
 
-  it('has 32 total resources', () => {
-    expect(allSchemas.length).toBe(32);
+  it('has 29 total resources', () => {
+    expect(allSchemas.length).toBe(29);
   });
 });
 
