@@ -228,4 +228,80 @@ describe('policyGenerator', () => {
       expect(arcCondition.equals).toBe('Microsoft.HybridCompute/machines');
     });
   });
+
+  // ─── Edge Cases ───────────────────────────────────────────────────
+  describe('edge cases', () => {
+    it('generates valid policy for config with many resources', () => {
+      const resources = Array.from({ length: 20 }, (_, i) => ({
+        id: `r${i}`, schemaName: 'Registry', instanceName: `Reg${i}`,
+        properties: { Key: `HKLM:\\SOFTWARE\\Test${i}`, ValueName: `Val${i}`, ValueType: 'Dword', ValueData: ['1'] },
+        dependsOn: i > 0 ? [`r${i - 1}`] : [],
+      }));
+      const policy = generatePolicyJson(makeConfig({ resources })) as any;
+      expect(policy.properties.policyRule.if.anyOf).toHaveLength(2);
+      expect(policy.properties.metadata.guestConfiguration.name).toBe('TestConfig');
+    });
+
+    it('DINE policy has conditional resources for both VM and Arc', () => {
+      const policy = generatePolicyJson(makeConfig({
+        mode: 'AuditAndSet',
+        resources: [{ id: '1', schemaName: 'Registry', instanceName: 'R1', properties: { Key: 'HKLM:\\Test', ValueName: 'V', ValueType: 'Dword', ValueData: ['1'] }, dependsOn: [] }],
+      })) as any;
+      const deployment = policy.properties.policyRule.then.details.deployment;
+      const resources = deployment.properties.template.resources;
+      const conditions = resources.map((r: any) => r.condition).filter(Boolean);
+      expect(conditions.length).toBeGreaterThanOrEqual(2);
+      expect(conditions.some((c: string) => c.includes('HybridCompute'))).toBe(true);
+      expect(conditions.some((c: string) => c.includes('Compute/virtualMachines'))).toBe(true);
+    });
+
+    it('DINE policy uses API version 2024-04-05 for GC assignments', () => {
+      const policy = generatePolicyJson(makeConfig({
+        mode: 'AuditAndSet',
+        resources: [{ id: '1', schemaName: 'Registry', instanceName: 'R1', properties: { Key: 'HKLM:\\Test', ValueName: 'V' }, dependsOn: [] }],
+      })) as any;
+      const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
+      const gcResources = resources.filter((r: any) => r.type?.includes('guestConfigurationAssignments'));
+      for (const r of gcResources) {
+        expect(r.apiVersion).toBe('2024-04-05');
+      }
+    });
+
+    it('DINE policy includes GC extension with typeHandlerVersion 1.*', () => {
+      const policy = generatePolicyJson(makeConfig({
+        mode: 'AuditAndSet',
+        resources: [{ id: '1', schemaName: 'Registry', instanceName: 'R1', properties: { Key: 'HKLM:\\Test', ValueName: 'V' }, dependsOn: [] }],
+      })) as any;
+      const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
+      const extResource = resources.find((r: any) => r.type?.includes('extensions'));
+      expect(extResource).toBeDefined();
+      expect(extResource.properties.typeHandlerVersion).toBe('1.*');
+      expect(extResource.properties.autoUpgradeMinorVersion).toBe(true);
+    });
+
+    it('Audit policy targets correct OS for Linux', () => {
+      const policy = generatePolicyJson(makeConfig({
+        platform: 'Linux',
+        resources: [{ id: '1', schemaName: 'nxFile', instanceName: 'F1', properties: { DestinationPath: '/etc/test' }, dependsOn: [] }],
+      })) as any;
+      const vmCondition = policy.properties.policyRule.if.anyOf[0].allOf[1].anyOf;
+      const osMatch = vmCondition.find((c: any) => c.field?.includes('osType'));
+      expect(osMatch.like).toBe('Linux*');
+    });
+
+    it('parameterHash includes all resource parameters', () => {
+      const policy = generatePolicyJson(makeConfig({
+        mode: 'AuditAndSet',
+        resources: [
+          { id: '1', schemaName: 'Registry', instanceName: 'R1', properties: { Key: 'HKLM:\\A', ValueName: 'V1', ValueType: 'Dword', ValueData: ['1'], Ensure: 'Present' }, dependsOn: [] },
+          { id: '2', schemaName: 'Registry', instanceName: 'R2', properties: { Key: 'HKLM:\\B', ValueName: 'V2', ValueType: 'String', ValueData: ['test'] }, dependsOn: ['1'] },
+        ],
+      })) as any;
+      const ec = policy.properties.policyRule.then.details.existenceCondition;
+      const hashField = ec.allOf.find((c: any) => c.field?.includes('parameterHash'));
+      expect(hashField).toBeDefined();
+      // Should reference parameter values from both resources
+      expect(hashField.equals).toContain('parameterHash:');
+    });
+  });
 });

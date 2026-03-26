@@ -162,7 +162,7 @@ The builder includes 9 ready-to-use templates:
 | Document | Description |
 |----------|-------------|
 | [Architecture](docs/ARCHITECTURE.md) | How the generators work, the pipeline from UI to ZIP, schema design |
-| [Demo Script](docs/DEMO.md) | Step-by-step walkthrough for live demonstrations |
+| [Template Gallery](docs/TEMPLATES.md) | Visual overview of all 9 pre-built templates with resource details |
 | [Permissions Guide](docs/PERMISSIONS.md) | Azure RBAC roles and prerequisites |
 | [FAQ](docs/FAQ.md) | Common questions about authoring, deployment, and troubleshooting |
 
