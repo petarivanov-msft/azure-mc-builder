@@ -118,7 +118,7 @@ Assign the built-in initiative **"Deploy prerequisites to enable Guest Configura
 Initiative ID: 12794019-7a00-42cf-95c2-882eed337cc8
 \`\`\`
 
-This single initiative handles everything — MC extension (Windows & Linux) and system-assigned managed identity.
+This single initiative handles everything — MC extension (Windows & Linux) and system-assigned managed identity. Arc-enabled servers already include the GC agent — no prerequisites needed.
 
 > **Individual policy IDs** (if you prefer granular assignments): GC Extension — \`${extensionPolicy}\`, Managed Identity — \`3cf2ab00-13f1-4d0c-8971-2ac904541a7e\`
 
