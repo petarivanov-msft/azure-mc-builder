@@ -157,6 +157,15 @@ The builder includes 9 ready-to-use templates:
 - **Audit** — checks compliance and reports it. Does not change anything on the VM.
 - **AuditAndSet** — checks compliance and **remediates** drift (applies the desired state). The MC agent uses `ApplyAndAutoCorrect` mode internally.
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/ARCHITECTURE.md) | How the generators work, the pipeline from UI to ZIP, schema design |
+| [Demo Script](docs/DEMO.md) | Step-by-step walkthrough for live demonstrations |
+| [Permissions Guide](docs/PERMISSIONS.md) | Azure RBAC roles and prerequisites |
+| [FAQ](docs/FAQ.md) | Common questions about authoring, deployment, and troubleshooting |
+
 ## Required Azure Permissions
 
 See [docs/PERMISSIONS.md](docs/PERMISSIONS.md) for the full guide.
