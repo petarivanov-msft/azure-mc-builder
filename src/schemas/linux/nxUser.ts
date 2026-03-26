@@ -9,7 +9,7 @@ export const nxUserSchema: ResourceSchema = {
   platform: 'Linux',
   description: 'Manage local user accounts on Linux',
   docUrl: 'https://github.com/Azure/nxtools#readme',
-  category: 'User & Group',
+  category: 'Identity',
   properties: [
     { name: 'UserName', description: 'Username to manage', type: 'string', required: true, isKey: true, placeholder: 'appuser' },
     { name: 'Ensure', description: 'Whether the user should exist', type: 'string', required: false, isKey: false, enumValues: ['Present', 'Absent'], defaultValue: 'Present' },

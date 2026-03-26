@@ -9,7 +9,7 @@ export const nxGroupSchema: ResourceSchema = {
   platform: 'Linux',
   description: 'Manage local groups on Linux',
   docUrl: 'https://github.com/Azure/nxtools#readme',
-  category: 'User & Group',
+  category: 'Identity',
   properties: [
     { name: 'GroupName', description: 'Name of the group', type: 'string', required: true, isKey: true, placeholder: 'docker' },
     { name: 'Ensure', description: 'Whether the group should exist', type: 'string', required: false, isKey: false, enumValues: ['Present', 'Absent'], defaultValue: 'Present' },
