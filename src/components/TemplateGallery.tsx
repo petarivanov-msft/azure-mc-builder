@@ -192,31 +192,22 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ open, onClose,
                             <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
                               <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: '12px', color: '#333' }}>Resource Type</th>
                               <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: '12px', color: '#333' }}>Instance Name</th>
-                              <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: '12px', color: '#333' }}>Key Property</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {t.config.resources.map(r => {
-                              const schema = schemasByName[r.schemaName];
-                              const keyProp = schema?.properties.find(p => p.required);
-                              const keyVal = keyProp ? String(r.properties[keyProp.name] ?? '') : '';
-                              return (
-                                <tr key={r.id} style={{ borderBottom: '1px solid #eee' }}>
-                                  <td style={{ padding: '6px 8px' }}>
-                                    <code style={{
-                                      fontSize: '12px', background: '#e8f0fe',
-                                      padding: '2px 8px', borderRadius: '4px', color: '#1a56db',
-                                    }}>
-                                      {r.schemaName}
-                                    </code>
-                                  </td>
-                                  <td style={{ padding: '6px 8px' }}>{r.instanceName}</td>
-                                  <td style={{ padding: '6px 8px', color: '#555', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {keyVal.length > 50 ? keyVal.slice(0, 47) + '...' : keyVal}
-                                  </td>
-                                </tr>
-                              );
-                            })}
+                            {t.config.resources.map(r => (
+                              <tr key={r.id} style={{ borderBottom: '1px solid #eee' }}>
+                                <td style={{ padding: '6px 8px' }}>
+                                  <code style={{
+                                    fontSize: '12px', background: '#e8f0fe',
+                                    padding: '2px 8px', borderRadius: '4px', color: '#1a56db',
+                                  }}>
+                                    {r.schemaName}
+                                  </code>
+                                </td>
+                                <td style={{ padding: '6px 8px' }}>{r.instanceName}</td>
+                              </tr>
+                            ))}
                           </tbody>
                         </table>
                       </div>
