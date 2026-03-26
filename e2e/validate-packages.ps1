@@ -150,7 +150,45 @@ foreach ($dir in $configDirs) {
         }
 
         $displayStatus = if ($status -eq $true -or $status -eq 'True' -or $status -eq 'Compliant') { 'Compliant' } else { 'NonCompliant' }
-        Write-Host "   ✅ PASS — Status: $displayStatus, Resources: $resCount" -ForegroundColor Green
+
+            # ── Check for fatal resource errors hidden inside "NonCompliant" results ──
+            # DSC returns NonCompliant (not an exception) when a resource class doesn't exist.
+            # We must detect these and FAIL the test — a missing resource is not valid drift.
+            $fatalResourceErrors = @()
+            $fatalPatterns = @(
+                'is not recognized as the name of a Resource',
+                "couldn't find PowerShell DSC resource",
+                'Failed to Run Consistency',
+                'threw an exception.*not recognized'
+            )
+
+            if ($result.resources) {
+                foreach ($r in $result.resources) {
+                    if ($r.properties -and $r.properties.Reasons) {
+                        foreach ($reason in $r.properties.Reasons) {
+                            foreach ($pattern in $fatalPatterns) {
+                                if ($reason.Phrase -match $pattern) {
+                                    $fatalResourceErrors += $reason.Phrase
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if ($fatalResourceErrors.Count -gt 0) {
+                Write-Host "   ❌ FAIL — DSC resource error (package invalid)" -ForegroundColor Red
+                foreach ($err in $fatalResourceErrors) {
+                    $truncated = $err.Substring(0, [Math]::Min(300, $err.Length))
+                    Write-Host "      $truncated" -ForegroundColor Red
+                }
+                $failures += @{ Name = $name; Error = ($fatalResourceErrors -join '; ').Substring(0, [Math]::Min(500, ($fatalResourceErrors -join '; ').Length)) }
+                $failed++
+            } else {
+                Write-Host "   ✅ PASS — Status: $displayStatus, Resources: $resCount" -ForegroundColor Green
+                $passed++
+            }
 
             # Per-resource detail
             if ($result.resources) {
@@ -172,21 +210,36 @@ foreach ($dir in $configDirs) {
                     Write-Host "   $icon $rName$reasons" -ForegroundColor DarkGray
                 }
             }
-
-            $passed++
     }
     catch {
         $errMsg = $_.Exception.Message
 
-        # Commands like sysctl, ufw, etc. may not exist on CI/dev hosts but work on Azure VMs.
-        # If DSC engine ran but a system command was missing, the PACKAGE is valid — mark as warning.
-        $knownEnvErrors = @('is not recognized as a name of a cmdlet', 'command not found', 'No such file or directory')
-        $isEnvIssue = $false
-        foreach ($pattern in $knownEnvErrors) {
-            if ($errMsg -match [regex]::Escape($pattern)) { $isEnvIssue = $true; break }
+        # Classify the error:
+        # 1. Fatal DSC error — resource class doesn't exist in module (package is INVALID)
+        # 2. Environment error — system command missing on this host (package is valid, host lacks tool)
+        # 3. Unknown error — genuine failure
+
+        $fatalDscPatterns = @('is not recognized as the name of a Resource', "couldn't find PowerShell DSC resource")
+        $envPatterns = @('is not recognized as a name of a cmdlet', 'command not found', 'No such file or directory')
+
+        $isFatalDsc = $false
+        foreach ($pattern in $fatalDscPatterns) {
+            if ($errMsg -match [regex]::Escape($pattern)) { $isFatalDsc = $true; break }
         }
 
-        if ($isEnvIssue) {
+        $isEnvIssue = $false
+        if (-not $isFatalDsc) {
+            foreach ($pattern in $envPatterns) {
+                if ($errMsg -match [regex]::Escape($pattern)) { $isEnvIssue = $true; break }
+            }
+        }
+
+        if ($isFatalDsc) {
+            Write-Host "   ❌ FAIL — DSC resource not found (invalid schema)" -ForegroundColor Red
+            Write-Host "      $($errMsg.Substring(0, [Math]::Min(300, $errMsg.Length)))" -ForegroundColor Red
+            $failures += @{ Name = $name; Error = $errMsg }
+            $failed++
+        } elseif ($isEnvIssue) {
             Write-Host "   ⚠️  WARN — Package valid, but system command missing on this host" -ForegroundColor Yellow
             Write-Host "      $($errMsg.Substring(0, [Math]::Min(200, $errMsg.Length)))..." -ForegroundColor DarkYellow
             $passed++  # Package structure is valid — would work on a real VM

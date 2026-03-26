@@ -99,6 +99,39 @@ describe('Schema consistency checks', () => {
     }
   });
 
+  // Known DSC MOF class names per module — verified against source repos.
+  // This prevents adding fabricated resource names that pass build but fail at runtime.
+  const knownMofClassNames: Record<string, string[]> = {
+    // https://github.com/PowerShell/PSDscResources
+    PSDscResources: [
+      'MSFT_ArchiveResource', 'MSFT_EnvironmentResource', 'MSFT_GroupResource',
+      'MSFT_MsiPackage', 'MSFT_RegistryResource', 'MSFT_ScriptResource',
+      'MSFT_ServiceResource', 'MSFT_UserResource', 'MSFT_RoleResource',
+      'MSFT_WindowsOptionalFeature', 'MSFT_WindowsPackageCab', 'MSFT_WindowsProcess',
+    ],
+    // https://github.com/dsccommunity/SecurityPolicyDsc
+    SecurityPolicyDsc: ['MSFT_AccountPolicy', 'MSFT_UserRightsAssignment', 'MSFT_SecurityOption'],
+    // https://github.com/dsccommunity/AuditPolicyDsc
+    AuditPolicyDsc: ['MSFT_AuditPolicySubcategory', 'MSFT_AuditPolicyOption'],
+    // https://github.com/dsccommunity/NetworkingDsc
+    NetworkingDsc: ['DSC_Firewall'],
+    // https://github.com/dsccommunity/ComputerManagementDsc
+    ComputerManagementDsc: ['DSC_ScheduledTask', 'DSC_TimeZone', 'DSC_PowerPlan'],
+    // https://github.com/Azure/nxtools (source/Classes/1.DscResources/)
+    nxtools: [
+      'nxFile', 'nxGroup', 'nxUser', 'nxPackage',
+      'nxFileLine', 'nxFileContentReplace', 'nxService', 'nxScript',
+    ],
+  };
+
+  it('every mofClassName exists in its module (no fabricated resources)', () => {
+    for (const s of allSchemas) {
+      const allowed = knownMofClassNames[s.moduleName];
+      expect(allowed, `${s.resourceName}: module '${s.moduleName}' not in knownMofClassNames registry`).toBeDefined();
+      expect(allowed, `${s.resourceName}: mofClassName '${s.mofClassName}' is not a real DSC resource in ${s.moduleName}. Known: ${allowed?.join(', ')}`).toContain(s.mofClassName);
+    }
+  });
+
   it('enum properties have enumValues defined', () => {
     for (const s of allSchemas) {
       for (const p of s.properties) {
