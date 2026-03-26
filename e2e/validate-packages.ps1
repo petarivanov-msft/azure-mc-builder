@@ -3,6 +3,14 @@
 # with Test-GuestConfigurationPackage (local DSC evaluation — no Azure VM needed).
 #
 # Usage: pwsh -File e2e/validate-packages.ps1 [-InputDir /tmp/mc-e2e] [-TargetPlatform Linux|Windows|All]
+#
+# Exit codes: number of failed tests (0 = all pass)
+#
+# VALIDATION PHILOSOPHY:
+#   A "PASS" means the DSC engine loaded the resource, ran Get/Test, and returned
+#   a clean compliance result (Compliant or NonCompliant with drift reasons).
+#   Any result that contains exceptions, stack traces, or resource loading failures
+#   is a FAIL — even if DSC returns a non-null complianceStatus.
 
 #Requires -Version 7.0
 param(
@@ -22,6 +30,68 @@ $failures = @()
 $hostIsLinux = $IsLinux
 $hostIsWindows = $IsWindows
 
+# ─── Error classification patterns ───────────────────────────────────────────
+# These patterns in Reason phrases or exception messages indicate the resource
+# FAILED TO EXECUTE — not that it found legitimate drift/non-compliance.
+
+# Fatal: resource doesn't exist or can't load (package is structurally invalid)
+$fatalResourcePatterns = @(
+    'is not recognized as the name of a Resource',
+    "couldn't find PowerShell DSC resource",
+    'Could not find the type of DSC resource class',
+    'Failed to Run Consistency'
+)
+
+# Fatal: resource loaded but blew up during execution (Get/Test/Set threw)
+# These indicate broken resource logic, bad test data, or missing dependencies.
+$executionErrorPatterns = @(
+    'failed to execute .* functionality with error message',
+    'threw an exception',
+    'CommandNotFoundException',
+    'InvalidOperationException',
+    'System\.Management\.Automation\.\w+Exception',
+    '--- End of inner exception stack trace ---',
+    'at System\.',
+    'at Microsoft\.'
+)
+
+$allFatalPatterns = $fatalResourcePatterns + $executionErrorPatterns
+
+# Environment-only: system commands missing on this host but package is valid
+# These ONLY apply in the catch block (exception path), never for result analysis.
+$envOnlyPatterns = @(
+    'is not recognized as a name of a cmdlet',
+    'command not found',
+    'No such file or directory'
+)
+
+function Test-ReasonIsFatal([string]$phrase) {
+    foreach ($pattern in $script:allFatalPatterns) {
+        if ($phrase -match $pattern) { return $true }
+    }
+    return $false
+}
+
+function Test-ErrorIsFatalDsc([string]$msg) {
+    foreach ($pattern in $script:fatalResourcePatterns) {
+        if ($msg -match [regex]::Escape($pattern)) { return $true }
+    }
+    foreach ($pattern in $script:executionErrorPatterns) {
+        if ($msg -match $pattern) { return $true }
+    }
+    return $false
+}
+
+function Test-ErrorIsEnvOnly([string]$msg) {
+    # Env errors should NOT match fatal patterns
+    if (Test-ErrorIsFatalDsc $msg) { return $false }
+    foreach ($pattern in $script:envOnlyPatterns) {
+        if ($msg -match [regex]::Escape($pattern)) { return $true }
+    }
+    return $false
+}
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 function Get-ConfigPlatform([string]$mofContent) {
     if ($mofContent -match 'ModuleName = "nxtools"') { return 'Linux' }
     if ($mofContent -match 'ModuleName = "PSDscResources"') { return 'Windows' }
@@ -53,7 +123,6 @@ $requiredModules = @(
 )
 
 foreach ($mod in $requiredModules) {
-    # Skip modules not needed for this platform
     if ($mod.Platform -ne 'All') {
         if ($mod.Platform -eq 'Linux' -and -not $hostIsLinux) { continue }
         if ($mod.Platform -eq 'Windows' -and -not $hostIsWindows) { continue }
@@ -129,7 +198,7 @@ foreach ($dir in $configDirs) {
         $sizeKB = [math]::Round((Get-Item $pkg.Path).Length / 1KB)
         Write-Host "   📦 Package: ${sizeKB}KB, SHA256: $($hash.Substring(0,16))..." -ForegroundColor DarkGray
 
-        # Test package (v4.x renamed to Get-GuestConfigurationPackageComplianceStatus)
+        # Test package
         $testCmd = if (Get-Command 'Test-GuestConfigurationPackage' -ErrorAction SilentlyContinue) {
             'Test-GuestConfigurationPackage'
         } else {
@@ -140,115 +209,90 @@ foreach ($dir in $configDirs) {
         $status = $result.complianceStatus
         $resCount = ($result.resources | Measure-Object).Count
 
-        # complianceStatus is a boolean or string:
-        #   True / 'Compliant' = all resources compliant
-        #   False / 'NonCompliant' = some resources non-compliant
-        # Both mean DSC EVALUATED SUCCESSFULLY — the package is valid.
-        # Only null/empty/error means something went wrong.
         if ($null -eq $status) {
             throw 'DSC evaluation returned null complianceStatus'
         }
 
         $displayStatus = if ($status -eq $true -or $status -eq 'True' -or $status -eq 'Compliant') { 'Compliant' } else { 'NonCompliant' }
 
-            # ── Check for fatal resource errors hidden inside "NonCompliant" results ──
-            # DSC returns NonCompliant (not an exception) when a resource class doesn't exist.
-            # We must detect these and FAIL the test — a missing resource is not valid drift.
-            $fatalResourceErrors = @()
-            $fatalPatterns = @(
-                'is not recognized as the name of a Resource',
-                "couldn't find PowerShell DSC resource",
-                'Failed to Run Consistency',
-                'threw an exception.*not recognized'
-            )
+        # ── Scan ALL resource reasons for fatal errors ──
+        # A NonCompliant result could be legitimate drift OR a resource execution failure.
+        # Legitimate drift: "Service 'sshd' is not running", "File does not exist"
+        # Execution failure: stack traces, .NET exceptions, resource class not found
+        $fatalErrors = @()
 
-            if ($result.resources) {
-                foreach ($r in $result.resources) {
-                    if ($r.properties -and $r.properties.Reasons) {
-                        foreach ($reason in $r.properties.Reasons) {
-                            foreach ($pattern in $fatalPatterns) {
-                                if ($reason.Phrase -match $pattern) {
-                                    $fatalResourceErrors += $reason.Phrase
-                                    break
-                                }
-                            }
+        if ($result.resources) {
+            foreach ($r in $result.resources) {
+                if ($r.properties -and $r.properties.Reasons) {
+                    foreach ($reason in $r.properties.Reasons) {
+                        if ($reason.Phrase -and (Test-ReasonIsFatal $reason.Phrase)) {
+                            $rId = if ($r.ResourceId) { $r.ResourceId } elseif ($r.properties.ConfigurationName) { $r.properties.ConfigurationName } else { '?' }
+                            $fatalErrors += "[${rId}] $($reason.Phrase.Substring(0, [Math]::Min(200, $reason.Phrase.Length)))"
                         }
                     }
                 }
             }
+        }
 
-            if ($fatalResourceErrors.Count -gt 0) {
-                Write-Host "   ❌ FAIL — DSC resource error (package invalid)" -ForegroundColor Red
-                foreach ($err in $fatalResourceErrors) {
-                    $truncated = $err.Substring(0, [Math]::Min(300, $err.Length))
-                    Write-Host "      $truncated" -ForegroundColor Red
-                }
-                $failures += @{ Name = $name; Error = ($fatalResourceErrors -join '; ').Substring(0, [Math]::Min(500, ($fatalResourceErrors -join '; ').Length)) }
-                $failed++
-            } else {
-                Write-Host "   ✅ PASS — Status: $displayStatus, Resources: $resCount" -ForegroundColor Green
-                $passed++
+        if ($fatalErrors.Count -gt 0) {
+            Write-Host "   ❌ FAIL — Resource execution error (not valid drift)" -ForegroundColor Red
+            foreach ($err in $fatalErrors) {
+                Write-Host "      $err" -ForegroundColor Red
             }
+            $failures += @{ Name = $name; Error = ($fatalErrors -join ' | ').Substring(0, [Math]::Min(500, ($fatalErrors -join ' | ').Length)) }
+            $failed++
+        } else {
+            Write-Host "   ✅ PASS — Status: $displayStatus, Resources: $resCount" -ForegroundColor Green
+            $passed++
+        }
 
-            # Per-resource detail
-            if ($result.resources) {
-                foreach ($r in $result.resources) {
-                    $rStatus = $r.complianceStatus
-                    $icon = if ($rStatus -eq 'true' -or $rStatus -eq 'True' -or $rStatus -eq 'Compliant') { '  ✓' } else { '  ✗' }
-                    $rName = ''
-                    if ($r.properties -and $r.properties.ConfigurationName) {
-                        $rName = $r.properties.ConfigurationName
-                    } elseif ($r.ResourceId) {
-                        $rName = $r.ResourceId
-                    }
-
-                    $reasons = ''
-                    if ($r.properties -and $r.properties.Reasons) {
-                        $phrases = $r.properties.Reasons | ForEach-Object { $_.Phrase } | Where-Object { $_ }
-                        if ($phrases) { $reasons = " — $($phrases -join '; ')" }
-                    }
-                    Write-Host "   $icon $rName$reasons" -ForegroundColor DarkGray
+        # Per-resource detail (always print)
+        if ($result.resources) {
+            foreach ($r in $result.resources) {
+                $rStatus = $r.complianceStatus
+                $icon = if ($rStatus -eq 'true' -or $rStatus -eq 'True' -or $rStatus -eq 'Compliant') { '  ✓' } else { '  ✗' }
+                $rName = ''
+                if ($r.properties -and $r.properties.ConfigurationName) {
+                    $rName = $r.properties.ConfigurationName
+                } elseif ($r.ResourceId) {
+                    $rName = $r.ResourceId
                 }
+
+                $reasons = ''
+                if ($r.properties -and $r.properties.Reasons) {
+                    $phrases = $r.properties.Reasons | ForEach-Object { $_.Phrase } | Where-Object { $_ }
+                    if ($phrases) {
+                        $joined = $phrases -join '; '
+                        $reasons = " — $($joined.Substring(0, [Math]::Min(300, $joined.Length)))"
+                    }
+                }
+                Write-Host "   $icon $rName$reasons" -ForegroundColor DarkGray
             }
+        }
     }
     catch {
         $errMsg = $_.Exception.Message
 
-        # Classify the error:
-        # 1. Fatal DSC error — resource class doesn't exist in module (package is INVALID)
-        # 2. Environment error — system command missing on this host (package is valid, host lacks tool)
-        # 3. Unknown error — genuine failure
+        # Classify the exception:
+        # 1. Fatal DSC error — resource class doesn't exist, execution blew up (FAIL)
+        # 2. Environment error — system command missing on this host (WARN, package is valid)
+        # 3. Unknown error — genuine failure (FAIL)
 
-        $fatalDscPatterns = @('is not recognized as the name of a Resource', "couldn't find PowerShell DSC resource")
-        $envPatterns = @('is not recognized as a name of a cmdlet', 'command not found', 'No such file or directory')
-
-        $isFatalDsc = $false
-        foreach ($pattern in $fatalDscPatterns) {
-            if ($errMsg -match [regex]::Escape($pattern)) { $isFatalDsc = $true; break }
-        }
-
-        $isEnvIssue = $false
-        if (-not $isFatalDsc) {
-            foreach ($pattern in $envPatterns) {
-                if ($errMsg -match [regex]::Escape($pattern)) { $isEnvIssue = $true; break }
-            }
-        }
-
-        if ($isFatalDsc) {
-            Write-Host "   ❌ FAIL — DSC resource not found (invalid schema)" -ForegroundColor Red
+        if (Test-ErrorIsFatalDsc $errMsg) {
+            Write-Host "   ❌ FAIL — DSC resource error (package invalid)" -ForegroundColor Red
             Write-Host "      $($errMsg.Substring(0, [Math]::Min(300, $errMsg.Length)))" -ForegroundColor Red
-            $failures += @{ Name = $name; Error = $errMsg }
+            $failures += @{ Name = $name; Error = $errMsg.Substring(0, [Math]::Min(500, $errMsg.Length)) }
             $failed++
-        } elseif ($isEnvIssue) {
+        } elseif (Test-ErrorIsEnvOnly $errMsg) {
             Write-Host "   ⚠️  WARN — Package valid, but system command missing on this host" -ForegroundColor Yellow
             Write-Host "      $($errMsg.Substring(0, [Math]::Min(200, $errMsg.Length)))..." -ForegroundColor DarkYellow
-            $passed++  # Package structure is valid — would work on a real VM
+            $passed++
         } else {
-            Write-Host "   ❌ FAIL — $errMsg" -ForegroundColor Red
+            Write-Host "   ❌ FAIL — $($errMsg.Substring(0, [Math]::Min(300, $errMsg.Length)))" -ForegroundColor Red
             if ($_.Exception.InnerException) {
-                Write-Host "      Inner: $($_.Exception.InnerException.Message)" -ForegroundColor DarkRed
+                Write-Host "      Inner: $($_.Exception.InnerException.Message.Substring(0, [Math]::Min(200, $_.Exception.InnerException.Message.Length)))" -ForegroundColor DarkRed
             }
-            $failures += @{ Name = $name; Error = $errMsg }
+            $failures += @{ Name = $name; Error = $errMsg.Substring(0, [Math]::Min(500, $errMsg.Length)) }
             $failed++
         }
     }
