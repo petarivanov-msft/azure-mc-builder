@@ -57,16 +57,38 @@ $executionErrorPatterns = @(
 
 $allFatalPatterns = $fatalResourcePatterns + $executionErrorPatterns
 
-# Environment-only: system commands missing on this host but package is valid
-# These ONLY apply in the catch block (exception path), never for result analysis.
+# Environment-only: system commands missing on this host but package is valid.
+# When these appear INSIDE an execution error (e.g. nxScript calling sysctl),
+# the package itself is fine — the host just doesn't have that tool.
 $envOnlyPatterns = @(
     'is not recognized as a name of a cmdlet',
     'command not found',
     'No such file or directory'
 )
 
+function Test-ReasonIsEnvOnly([string]$phrase) {
+    # If the phrase contains an environment-only pattern, it's a host issue, not a package issue
+    foreach ($pattern in $script:envOnlyPatterns) {
+        if ($phrase -match [regex]::Escape($pattern)) { return $true }
+    }
+    return $false
+}
+
+function Test-ReasonIsFatalResource([string]$phrase) {
+    # Check for resource-level failures (can't load, doesn't exist)
+    foreach ($pattern in $script:fatalResourcePatterns) {
+        if ($phrase -match $pattern) { return $true }
+    }
+    return $false
+}
+
 function Test-ReasonIsFatal([string]$phrase) {
-    foreach ($pattern in $script:allFatalPatterns) {
+    # Env issues take priority — if the inner cause is "command not found", it's not fatal
+    if (Test-ReasonIsEnvOnly $phrase) { return $false }
+    # Then check for resource loading failures
+    if (Test-ReasonIsFatalResource $phrase) { return $true }
+    # Then check for execution errors (only if NOT env-related)
+    foreach ($pattern in $script:executionErrorPatterns) {
         if ($phrase -match $pattern) { return $true }
     }
     return $false
@@ -219,15 +241,23 @@ foreach ($dir in $configDirs) {
         # A NonCompliant result could be legitimate drift OR a resource execution failure.
         # Legitimate drift: "Service 'sshd' is not running", "File does not exist"
         # Execution failure: stack traces, .NET exceptions, resource class not found
+        # Environment issue: nxScript calling sysctl/ufw but command not on this host
         $fatalErrors = @()
+        $envWarnings = @()
 
         if ($result.resources) {
             foreach ($r in $result.resources) {
                 if ($r.properties -and $r.properties.Reasons) {
                     foreach ($reason in $r.properties.Reasons) {
-                        if ($reason.Phrase -and (Test-ReasonIsFatal $reason.Phrase)) {
-                            $rId = if ($r.ResourceId) { $r.ResourceId } elseif ($r.properties.ConfigurationName) { $r.properties.ConfigurationName } else { '?' }
-                            $fatalErrors += "[${rId}] $($reason.Phrase.Substring(0, [Math]::Min(200, $reason.Phrase.Length)))"
+                        if (-not $reason.Phrase) { continue }
+                        $rId = if ($r.ResourceId) { $r.ResourceId } elseif ($r.properties.ConfigurationName) { $r.properties.ConfigurationName } else { '?' }
+                        $truncatedPhrase = $reason.Phrase.Substring(0, [Math]::Min(200, $reason.Phrase.Length))
+
+                        if (Test-ReasonIsEnvOnly $reason.Phrase) {
+                            # Command missing on this host — package is valid
+                            $envWarnings += "[${rId}] $truncatedPhrase"
+                        } elseif (Test-ReasonIsFatal $reason.Phrase) {
+                            $fatalErrors += "[${rId}] $truncatedPhrase"
                         }
                     }
                 }
@@ -241,6 +271,12 @@ foreach ($dir in $configDirs) {
             }
             $failures += @{ Name = $name; Error = ($fatalErrors -join ' | ').Substring(0, [Math]::Min(500, ($fatalErrors -join ' | ').Length)) }
             $failed++
+        } elseif ($envWarnings.Count -gt 0) {
+            Write-Host "   ⚠️  WARN — Package valid, but commands missing on this host" -ForegroundColor Yellow
+            foreach ($warn in $envWarnings) {
+                Write-Host "      $warn" -ForegroundColor DarkYellow
+            }
+            $passed++  # Package structure is valid — would work on a real VM
         } else {
             Write-Host "   ✅ PASS — Status: $displayStatus, Resources: $resCount" -ForegroundColor Green
             $passed++
@@ -274,19 +310,28 @@ foreach ($dir in $configDirs) {
         $errMsg = $_.Exception.Message
 
         # Classify the exception:
-        # 1. Fatal DSC error — resource class doesn't exist, execution blew up (FAIL)
-        # 2. Environment error — system command missing on this host (WARN, package is valid)
-        # 3. Unknown error — genuine failure (FAIL)
+        # Priority: env-only > fatal DSC > unknown
+        # "sysctl not recognized" inside nxScript = env issue (package valid)
+        # "MSFT_ArchiveResource not found" = fatal DSC (package broken)
 
-        if (Test-ErrorIsFatalDsc $errMsg) {
+        $isEnv = Test-ReasonIsEnvOnly $errMsg
+        $isFatal = Test-ReasonIsFatalResource $errMsg  # resource-level only, not execution
+
+        if ($isEnv) {
+            Write-Host "   ⚠️  WARN — Package valid, but system command missing on this host" -ForegroundColor Yellow
+            Write-Host "      $($errMsg.Substring(0, [Math]::Min(200, $errMsg.Length)))..." -ForegroundColor DarkYellow
+            $passed++
+        } elseif ($isFatal) {
             Write-Host "   ❌ FAIL — DSC resource error (package invalid)" -ForegroundColor Red
             Write-Host "      $($errMsg.Substring(0, [Math]::Min(300, $errMsg.Length)))" -ForegroundColor Red
             $failures += @{ Name = $name; Error = $errMsg.Substring(0, [Math]::Min(500, $errMsg.Length)) }
             $failed++
-        } elseif (Test-ErrorIsEnvOnly $errMsg) {
-            Write-Host "   ⚠️  WARN — Package valid, but system command missing on this host" -ForegroundColor Yellow
-            Write-Host "      $($errMsg.Substring(0, [Math]::Min(200, $errMsg.Length)))..." -ForegroundColor DarkYellow
-            $passed++
+        } elseif (Test-ErrorIsFatalDsc $errMsg) {
+            # Execution error that's NOT env-related — could be broken test data
+            Write-Host "   ❌ FAIL — DSC execution error" -ForegroundColor Red
+            Write-Host "      $($errMsg.Substring(0, [Math]::Min(300, $errMsg.Length)))" -ForegroundColor Red
+            $failures += @{ Name = $name; Error = $errMsg.Substring(0, [Math]::Min(500, $errMsg.Length)) }
+            $failed++
         } else {
             Write-Host "   ❌ FAIL — $($errMsg.Substring(0, [Math]::Min(300, $errMsg.Length)))" -ForegroundColor Red
             if ($_.Exception.InnerException) {
