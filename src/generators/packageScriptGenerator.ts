@@ -127,17 +127,34 @@ Write-Host ''
 
 # ─── Local Compliance Test ───────────────────────────────────────────────────
 Write-Host '🧪 Running local compliance test...' -ForegroundColor Cyan
-$testCmd = if (Get-Command 'Test-GuestConfigurationPackage' -ErrorAction SilentlyContinue) {
-    'Test-GuestConfigurationPackage'
+
+# On Windows, the GC worker writes to C:\\ProgramData\\GuestConfig which requires elevation
+$isWindows = $PSVersionTable.PSVersion -and ($IsWindows -or $env:OS -eq 'Windows_NT')
+$isElevated = if ($isWindows) {
+    ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+} else { $true }
+
+if (-not $isElevated) {
+    Write-Host '   ⚠️  Skipping — local compliance test requires Administrator privileges on Windows.' -ForegroundColor Yellow
+    Write-Host '   Run this script in an elevated PowerShell to test locally, or deploy directly to Azure.' -ForegroundColor Gray
 } else {
-    'Get-GuestConfigurationPackageComplianceStatus'
-}
-$result = & $testCmd -Path $package.Path
-Write-Host "   Status: $($result.complianceStatus)" -ForegroundColor $(if ($result.complianceStatus -eq $true -or $result.complianceStatus -eq 'Compliant') { 'Green' } else { 'Yellow' })
-if ($result.resources) {
-    foreach ($r in $result.resources) {
-        $icon = if ($r.complianceStatus -eq $true -or $r.complianceStatus -eq 'True' -or $r.complianceStatus -eq 'Compliant') { '✅' } else { '❌' }
-        Write-Host "   $icon $($r.properties.ConfigurationName) — $($r.complianceStatus)"
+    try {
+        $testCmd = if (Get-Command 'Test-GuestConfigurationPackage' -ErrorAction SilentlyContinue) {
+            'Test-GuestConfigurationPackage'
+        } else {
+            'Get-GuestConfigurationPackageComplianceStatus'
+        }
+        $result = & $testCmd -Path $package.Path
+        Write-Host "   Status: $($result.complianceStatus)" -ForegroundColor $(if ($result.complianceStatus -eq $true -or $result.complianceStatus -eq 'Compliant') { 'Green' } else { 'Yellow' })
+        if ($result.resources) {
+            foreach ($r in $result.resources) {
+                $icon = if ($r.complianceStatus -eq $true -or $r.complianceStatus -eq 'True' -or $r.complianceStatus -eq 'Compliant') { '✅' } else { '❌' }
+                Write-Host "   $icon $($r.properties.ConfigurationName) — $($r.complianceStatus)"
+            }
+        }
+    } catch {
+        Write-Host "   ⚠️  Local test failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host '   This does not affect the package — deploy to Azure to validate.' -ForegroundColor Gray
     }
 }
 Write-Host ''
