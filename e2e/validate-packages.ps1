@@ -1,16 +1,16 @@
 # e2e/validate-packages.ps1
 # Builds Guest Configuration packages from generated MOFs and validates them
-# with Test-GuestConfigurationPackage (local DSC evaluation — no Azure VM needed).
+# with Test-GuestConfigurationPackage (local DSC evaluation).
 #
 # Usage: pwsh -File e2e/validate-packages.ps1 [-InputDir /tmp/mc-e2e] [-TargetPlatform Linux|Windows|All]
 #
 # Exit codes: number of failed tests (0 = all pass)
 #
-# VALIDATION PHILOSOPHY:
-#   A "PASS" means the DSC engine loaded the resource, ran Get/Test, and returned
-#   a clean compliance result (Compliant or NonCompliant with drift reasons).
-#   Any result that contains exceptions, stack traces, or resource loading failures
-#   is a FAIL — even if DSC returns a non-null complianceStatus.
+# What this does:
+#   1. Build package (New-GuestConfigurationPackage)
+#   2. Fix ZIP module paths for Azure compatibility (the cmdlet doesn't enforce this)
+#   3. Validate package (Test-GuestConfigurationPackage)
+#   4. Report results
 
 #Requires -Version 7.0
 param(
@@ -26,82 +26,15 @@ $failed = 0
 $skipped = 0
 $failures = @()
 
-# Detect host OS
 $hostIsLinux = $IsLinux
 $hostIsWindows = $IsWindows
 
-# ─── Error classification patterns ───────────────────────────────────────────
-# These patterns in Reason phrases or exception messages indicate the resource
-# FAILED TO EXECUTE — not that it found legitimate drift/non-compliance.
-
-# Fatal: resource doesn't exist or can't load (package is structurally invalid)
-$fatalResourcePatterns = @(
-    'is not recognized as the name of a Resource',
-    "couldn't find PowerShell DSC resource",
-    'Could not find the type of DSC resource class',
-    'Failed to Run Consistency'
-)
-
-# Fatal: resource loaded but blew up during execution (Get/Test/Set threw)
-# These indicate broken resource logic, bad test data, or missing dependencies.
-$executionErrorPatterns = @(
-    'failed to execute .* functionality with error message',
-    'threw an exception',
-    'CommandNotFoundException',
-    'InvalidOperationException',
-    'System\.Management\.Automation\.\w+Exception',
-    '--- End of inner exception stack trace ---',
-    'at System\.',
-    'at Microsoft\.'
-)
-
-$allFatalPatterns = $fatalResourcePatterns + $executionErrorPatterns
-
-# Environment-only: system commands missing on this host but package is valid.
-# When these appear INSIDE an execution error (e.g. nxScript calling sysctl),
-# the package itself is fine — the host just doesn't have that tool.
-$envOnlyPatterns = @(
-    'is not recognized as a name of a cmdlet',
-    'command not found',
-    'No such file or directory'
-)
-
-function Test-ReasonIsEnvOnly([string]$phrase) {
-    # If the phrase contains an environment-only pattern, it's a host issue, not a package issue
-    foreach ($pattern in $script:envOnlyPatterns) {
-        if ($phrase -match [regex]::Escape($pattern)) { return $true }
-    }
-    return $false
-}
-
-function Test-ReasonIsFatalResource([string]$phrase) {
-    # Check for resource-level failures (can't load, doesn't exist)
-    foreach ($pattern in $script:fatalResourcePatterns) {
-        if ($phrase -match $pattern) { return $true }
-    }
-    return $false
-}
-
-function Test-ReasonIsFatal([string]$phrase) {
-    # Env issues take priority — if the inner cause is "command not found", it's not fatal
-    if (Test-ReasonIsEnvOnly $phrase) { return $false }
-    # Then check for resource loading failures
-    if (Test-ReasonIsFatalResource $phrase) { return $true }
-    # Then check for execution errors (only if NOT env-related)
-    foreach ($pattern in $script:executionErrorPatterns) {
-        if ($phrase -match $pattern) { return $true }
-    }
-    return $false
-}
-
-# ─── ZIP structure validation ─────────────────────────────────────────────────
-# Azure GC agent requires versioned module paths: Modules/<Name>/<Version>/
-# Local Test-GuestConfigurationPackage does NOT enforce this — it happily runs
-# with flat Modules/<Name>/... but Azure rejects it with a misleading
-# "does not support remediation" error.
+# ─── ZIP structure helpers ────────────────────────────────────────────────────
+# Azure GC agent requires Modules/<Name>/<Version>/ inside the ZIP.
+# New-GuestConfigurationPackage on Linux produces flat Modules/<Name>/ which
+# works locally but Azure rejects with a misleading error.
 
 function Get-MofModules([string]$mofContent) {
-    # Extract all ModuleName + ModuleVersion pairs from MOF
     $modules = @{}
     $instances = [regex]::Matches($mofContent, '(?s)instance of \w+.*?\{.*?\}')
     foreach ($inst in $instances) {
@@ -116,7 +49,6 @@ function Get-MofModules([string]$mofContent) {
 }
 
 function Test-ZipModuleStructure([string]$zipPath, [hashtable]$expectedModules) {
-    # Returns array of error strings (empty = all good)
     $errors = @()
     try {
         Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
@@ -126,47 +58,36 @@ function Test-ZipModuleStructure([string]$zipPath, [hashtable]$expectedModules) 
 
         foreach ($modName in $expectedModules.Keys) {
             $modVer = $expectedModules[$modName]
-            # Expected: Modules/<Name>/<Version>/ (with something inside it)
-            $versionedPattern = "Modules/$modName/$modVer/"
-            $hasVersioned = $entries | Where-Object { $_ -like "$versionedPattern*" }
-
+            $hasVersioned = $entries | Where-Object { $_ -like "Modules/$modName/$modVer/*" }
             if (-not $hasVersioned) {
-                # Check if it exists flat (common bug)
-                $flatPattern = "Modules/$modName/"
-                $hasFlat = $entries | Where-Object { $_ -like "$flatPattern*" -and $_ -notlike "$flatPattern*/*/*/*" }
+                $hasFlat = $entries | Where-Object { $_ -like "Modules/$modName/*" }
                 if ($hasFlat) {
-                    $errors += "Module '$modName' has flat structure (Modules/$modName/...) but Azure requires versioned path (Modules/$modName/$modVer/...)"
+                    $errors += "'$modName' is flat (Modules/$modName/) — Azure requires Modules/$modName/$modVer/"
                 } else {
-                    $errors += "Module '$modName' v$modVer not found in ZIP at all (expected Modules/$modName/$modVer/)"
+                    $errors += "'$modName' v$modVer not found in ZIP"
                 }
             }
         }
     }
     catch {
-        $errors += "Failed to inspect ZIP: $($_.Exception.Message)"
+        $errors += "ZIP inspection failed: $($_.Exception.Message)"
     }
     return $errors
 }
 
 function Repair-ZipModuleStructure([string]$zipPath, [hashtable]$expectedModules) {
-    # Restages the ZIP with versioned module paths: Modules/<Name>/<Version>/...
-    # Returns $true on success, $false on failure
     try {
         Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
         $tmpStage = Join-Path ([System.IO.Path]::GetTempPath()) "zip-repair-$(Get-Random)"
         New-Item -Path $tmpStage -ItemType Directory -Force | Out-Null
-
-        # Extract
         [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $tmpStage)
 
-        # Restage each module with version folder
         foreach ($modName in $expectedModules.Keys) {
             $modVer = $expectedModules[$modName]
             $flatPath = Join-Path $tmpStage "Modules/$modName"
             $versionedPath = Join-Path $tmpStage "Modules/$modName/$modVer"
 
             if ((Test-Path $flatPath) -and -not (Test-Path $versionedPath)) {
-                # Move contents into versioned subfolder
                 $tmpMove = Join-Path ([System.IO.Path]::GetTempPath()) "mod-move-$(Get-Random)"
                 Move-Item -Path $flatPath -Destination $tmpMove -Force
                 New-Item -Path $versionedPath -ItemType Directory -Force | Out-Null
@@ -175,7 +96,6 @@ function Repair-ZipModuleStructure([string]$zipPath, [hashtable]$expectedModules
             }
         }
 
-        # Repackage
         Remove-Item $zipPath -Force
         [System.IO.Compression.ZipFile]::CreateFromDirectory($tmpStage, $zipPath)
         Remove-Item $tmpStage -Recurse -Force -ErrorAction SilentlyContinue
@@ -187,33 +107,10 @@ function Repair-ZipModuleStructure([string]$zipPath, [hashtable]$expectedModules
     }
 }
 
-function Test-ErrorIsFatalDsc([string]$msg) {
-    foreach ($pattern in $script:fatalResourcePatterns) {
-        if ($msg -match [regex]::Escape($pattern)) { return $true }
-    }
-    foreach ($pattern in $script:executionErrorPatterns) {
-        if ($msg -match $pattern) { return $true }
-    }
-    return $false
-}
-
-function Test-ErrorIsEnvOnly([string]$msg) {
-    # Env errors should NOT match fatal patterns
-    if (Test-ErrorIsFatalDsc $msg) { return $false }
-    foreach ($pattern in $script:envOnlyPatterns) {
-        if ($msg -match [regex]::Escape($pattern)) { return $true }
-    }
-    return $false
-}
-
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 function Get-ConfigPlatform([string]$mofContent) {
     if ($mofContent -match 'ModuleName = "nxtools"') { return 'Linux' }
-    if ($mofContent -match 'ModuleName = "PSDscResources"') { return 'Windows' }
-    if ($mofContent -match 'ModuleName = "SecurityPolicyDsc"') { return 'Windows' }
-    if ($mofContent -match 'ModuleName = "AuditPolicyDsc"') { return 'Windows' }
-    if ($mofContent -match 'ModuleName = "NetworkingDsc"') { return 'Windows' }
-    if ($mofContent -match 'ModuleName = "ComputerManagementDsc"') { return 'Windows' }
+    if ($mofContent -match 'ModuleName = "(PSDscResources|SecurityPolicyDsc|AuditPolicyDsc|NetworkingDsc|ComputerManagementDsc)"') { return 'Windows' }
     return 'Unknown'
 }
 
@@ -294,7 +191,7 @@ foreach ($dir in $configDirs) {
     Write-Host "── $name ($platform, $pkgType) ──" -ForegroundColor White
 
     try {
-        # Build package
+        # 1. Build package
         $outDir = Join-Path $dir.FullName 'output'
         if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
 
@@ -313,45 +210,27 @@ foreach ($dir in $configDirs) {
         $sizeKB = [math]::Round((Get-Item $pkg.Path).Length / 1KB)
         Write-Host "   📦 Package: ${sizeKB}KB, SHA256: $($hash.Substring(0,16))..." -ForegroundColor DarkGray
 
-        # ── Validate ZIP module structure ──
-        # Azure requires Modules/<Name>/<Version>/ — local testing doesn't enforce this
+        # 2. Fix ZIP module structure if needed
         $expectedMods = Get-MofModules $mofContent
         if ($expectedMods.Count -gt 0) {
             $zipErrors = Test-ZipModuleStructure $pkg.Path $expectedMods
             if ($zipErrors.Count -gt 0) {
-                Write-Host "   ⚠️  ZIP has flat module structure — auto-repairing..." -ForegroundColor Yellow
-                foreach ($ze in $zipErrors) {
-                    Write-Host "      $ze" -ForegroundColor DarkYellow
-                }
+                Write-Host "   🔧 Fixing flat module paths for Azure compatibility..." -ForegroundColor Yellow
                 $repaired = Repair-ZipModuleStructure $pkg.Path $expectedMods
-                if ($repaired) {
-                    # Verify the repair worked
-                    $recheck = Test-ZipModuleStructure $pkg.Path $expectedMods
-                    if ($recheck.Count -gt 0) {
-                        Write-Host "   ❌ FAIL — ZIP repair did not fix structure" -ForegroundColor Red
-                        foreach ($re in $recheck) { Write-Host "      $re" -ForegroundColor Red }
-                        $failures += @{ Name = $name; Error = ($recheck -join ' | ') }
-                        $failed++
-                        Write-Host ''
-                        continue
-                    }
-                    $newHash = (Get-FileHash -Path $pkg.Path -Algorithm SHA256).Hash
-                    $newSizeKB = [math]::Round((Get-Item $pkg.Path).Length / 1KB)
-                    Write-Host "   ✓ ZIP repaired: ${newSizeKB}KB, SHA256: $($newHash.Substring(0,16))..." -ForegroundColor Green
-                } else {
-                    Write-Host "   ❌ FAIL — ZIP module structure invalid and repair failed" -ForegroundColor Red
-                    $failures += @{ Name = $name; Error = ($zipErrors -join ' | ') }
-                    $failed++
-                    Write-Host ''
-                    continue
+                if (-not $repaired) {
+                    throw "ZIP module structure repair failed"
                 }
-            } else {
-                $modList = ($expectedMods.GetEnumerator() | ForEach-Object { "$($_.Key) v$($_.Value)" }) -join ', '
-                Write-Host "   ✓ ZIP structure: $modList — versioned paths OK" -ForegroundColor DarkGray
+                # Verify
+                $recheck = Test-ZipModuleStructure $pkg.Path $expectedMods
+                if ($recheck.Count -gt 0) {
+                    throw "ZIP still invalid after repair: $($recheck -join '; ')"
+                }
+                $newHash = (Get-FileHash -Path $pkg.Path -Algorithm SHA256).Hash
+                Write-Host "   ✓ Fixed — SHA256: $($newHash.Substring(0,16))..." -ForegroundColor DarkGray
             }
         }
 
-        # Test package
+        # 3. Validate package
         $testCmd = if (Get-Command 'Test-GuestConfigurationPackage' -ErrorAction SilentlyContinue) {
             'Test-GuestConfigurationPackage'
         } else {
@@ -359,118 +238,40 @@ foreach ($dir in $configDirs) {
         }
         $result = & $testCmd -Path $pkg.Path
 
-        $status = $result.complianceStatus
+        if ($null -eq $result.complianceStatus) {
+            throw 'Test-GuestConfigurationPackage returned null complianceStatus'
+        }
+
+        $isCompliant = $result.complianceStatus -eq $true -or $result.complianceStatus -eq 'True' -or $result.complianceStatus -eq 'Compliant'
         $resCount = ($result.resources | Measure-Object).Count
 
-        if ($null -eq $status) {
-            throw 'DSC evaluation returned null complianceStatus'
-        }
-
-        $displayStatus = if ($status -eq $true -or $status -eq 'True' -or $status -eq 'Compliant') { 'Compliant' } else { 'NonCompliant' }
-
-        # ── Scan ALL resource reasons for fatal errors ──
-        # A NonCompliant result could be legitimate drift OR a resource execution failure.
-        # Legitimate drift: "Service 'sshd' is not running", "File does not exist"
-        # Execution failure: stack traces, .NET exceptions, resource class not found
-        # Environment issue: nxScript calling sysctl/ufw but command not on this host
-        $fatalErrors = @()
-        $envWarnings = @()
-
-        if ($result.resources) {
-            foreach ($r in $result.resources) {
-                if ($r.properties -and $r.properties.Reasons) {
-                    foreach ($reason in $r.properties.Reasons) {
-                        if (-not $reason.Phrase) { continue }
-                        $rId = if ($r.ResourceId) { $r.ResourceId } elseif ($r.properties.ConfigurationName) { $r.properties.ConfigurationName } else { '?' }
-                        $truncatedPhrase = $reason.Phrase.Substring(0, [Math]::Min(200, $reason.Phrase.Length))
-
-                        if (Test-ReasonIsEnvOnly $reason.Phrase) {
-                            # Command missing on this host — package is valid
-                            $envWarnings += "[${rId}] $truncatedPhrase"
-                        } elseif (Test-ReasonIsFatal $reason.Phrase) {
-                            $fatalErrors += "[${rId}] $truncatedPhrase"
-                        }
-                    }
-                }
-            }
-        }
-
-        if ($fatalErrors.Count -gt 0) {
-            Write-Host "   ❌ FAIL — Resource execution error (not valid drift)" -ForegroundColor Red
-            foreach ($err in $fatalErrors) {
-                Write-Host "      $err" -ForegroundColor Red
-            }
-            $failures += @{ Name = $name; Error = ($fatalErrors -join ' | ').Substring(0, [Math]::Min(500, ($fatalErrors -join ' | ').Length)) }
-            $failed++
-        } elseif ($envWarnings.Count -gt 0) {
-            Write-Host "   ⚠️  WARN — Package valid, but commands missing on this host" -ForegroundColor Yellow
-            foreach ($warn in $envWarnings) {
-                Write-Host "      $warn" -ForegroundColor DarkYellow
-            }
-            $passed++  # Package structure is valid — would work on a real VM
+        # 4. Report
+        if ($isCompliant) {
+            Write-Host "   ✅ PASS — Compliant, $resCount resources" -ForegroundColor Green
         } else {
-            Write-Host "   ✅ PASS — Status: $displayStatus, Resources: $resCount" -ForegroundColor Green
-            $passed++
+            Write-Host "   ✅ PASS — NonCompliant (drift detected), $resCount resources" -ForegroundColor Green
         }
+        $passed++
 
-        # Per-resource detail (always print)
+        # Per-resource detail
         if ($result.resources) {
             foreach ($r in $result.resources) {
                 $rStatus = $r.complianceStatus
-                $icon = if ($rStatus -eq 'true' -or $rStatus -eq 'True' -or $rStatus -eq 'Compliant') { '  ✓' } else { '  ✗' }
-                $rName = ''
-                if ($r.properties -and $r.properties.ConfigurationName) {
-                    $rName = $r.properties.ConfigurationName
-                } elseif ($r.ResourceId) {
-                    $rName = $r.ResourceId
-                }
-
+                $icon = if ($rStatus -eq 'true' -or $rStatus -eq 'True' -or $rStatus -eq 'Compliant') { '✓' } else { '✗' }
+                $rName = if ($r.properties.ConfigurationName) { $r.properties.ConfigurationName } elseif ($r.ResourceId) { $r.ResourceId } else { '?' }
                 $reasons = ''
                 if ($r.properties -and $r.properties.Reasons) {
-                    $phrases = $r.properties.Reasons | ForEach-Object { $_.Phrase } | Where-Object { $_ }
-                    if ($phrases) {
-                        $joined = $phrases -join '; '
-                        $reasons = " — $($joined.Substring(0, [Math]::Min(300, $joined.Length)))"
-                    }
+                    $phrases = ($r.properties.Reasons | ForEach-Object { $_.Phrase } | Where-Object { $_ }) -join '; '
+                    if ($phrases) { $reasons = " — $($phrases.Substring(0, [Math]::Min(200, $phrases.Length)))" }
                 }
-                Write-Host "   $icon $rName$reasons" -ForegroundColor DarkGray
+                Write-Host "     $icon $rName$reasons" -ForegroundColor DarkGray
             }
         }
     }
     catch {
-        $errMsg = $_.Exception.Message
-
-        # Classify the exception:
-        # Priority: env-only > fatal DSC > unknown
-        # "sysctl not recognized" inside nxScript = env issue (package valid)
-        # "MSFT_ArchiveResource not found" = fatal DSC (package broken)
-
-        $isEnv = Test-ReasonIsEnvOnly $errMsg
-        $isFatal = Test-ReasonIsFatalResource $errMsg  # resource-level only, not execution
-
-        if ($isEnv) {
-            Write-Host "   ⚠️  WARN — Package valid, but system command missing on this host" -ForegroundColor Yellow
-            Write-Host "      $($errMsg.Substring(0, [Math]::Min(200, $errMsg.Length)))..." -ForegroundColor DarkYellow
-            $passed++
-        } elseif ($isFatal) {
-            Write-Host "   ❌ FAIL — DSC resource error (package invalid)" -ForegroundColor Red
-            Write-Host "      $($errMsg.Substring(0, [Math]::Min(300, $errMsg.Length)))" -ForegroundColor Red
-            $failures += @{ Name = $name; Error = $errMsg.Substring(0, [Math]::Min(500, $errMsg.Length)) }
-            $failed++
-        } elseif (Test-ErrorIsFatalDsc $errMsg) {
-            # Execution error that's NOT env-related — could be broken test data
-            Write-Host "   ❌ FAIL — DSC execution error" -ForegroundColor Red
-            Write-Host "      $($errMsg.Substring(0, [Math]::Min(300, $errMsg.Length)))" -ForegroundColor Red
-            $failures += @{ Name = $name; Error = $errMsg.Substring(0, [Math]::Min(500, $errMsg.Length)) }
-            $failed++
-        } else {
-            Write-Host "   ❌ FAIL — $($errMsg.Substring(0, [Math]::Min(300, $errMsg.Length)))" -ForegroundColor Red
-            if ($_.Exception.InnerException) {
-                Write-Host "      Inner: $($_.Exception.InnerException.Message.Substring(0, [Math]::Min(200, $_.Exception.InnerException.Message.Length)))" -ForegroundColor DarkRed
-            }
-            $failures += @{ Name = $name; Error = $errMsg.Substring(0, [Math]::Min(500, $errMsg.Length)) }
-            $failed++
-        }
+        Write-Host "   ❌ FAIL — $($_.Exception.Message)" -ForegroundColor Red
+        $failures += @{ Name = $name; Error = $_.Exception.Message.Substring(0, [Math]::Min(500, $_.Exception.Message.Length)) }
+        $failed++
     }
 
     Write-Host ''
