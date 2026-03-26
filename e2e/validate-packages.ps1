@@ -94,6 +94,99 @@ function Test-ReasonIsFatal([string]$phrase) {
     return $false
 }
 
+# ─── ZIP structure validation ─────────────────────────────────────────────────
+# Azure GC agent requires versioned module paths: Modules/<Name>/<Version>/
+# Local Test-GuestConfigurationPackage does NOT enforce this — it happily runs
+# with flat Modules/<Name>/... but Azure rejects it with a misleading
+# "does not support remediation" error.
+
+function Get-MofModules([string]$mofContent) {
+    # Extract all ModuleName + ModuleVersion pairs from MOF
+    $modules = @{}
+    $instances = [regex]::Matches($mofContent, '(?s)instance of \w+.*?\{.*?\}')
+    foreach ($inst in $instances) {
+        $block = $inst.Value
+        $modName = if ($block -match 'ModuleName\s*=\s*"([^"]+)"') { $Matches[1] } else { $null }
+        $modVer  = if ($block -match 'ModuleVersion\s*=\s*"([^"]+)"') { $Matches[1] } else { $null }
+        if ($modName -and $modVer -and $modName -ne 'GuestConfiguration') {
+            $modules[$modName] = $modVer
+        }
+    }
+    return $modules
+}
+
+function Test-ZipModuleStructure([string]$zipPath, [hashtable]$expectedModules) {
+    # Returns array of error strings (empty = all good)
+    $errors = @()
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+        $entries = $zip.Entries | ForEach-Object { $_.FullName }
+        $zip.Dispose()
+
+        foreach ($modName in $expectedModules.Keys) {
+            $modVer = $expectedModules[$modName]
+            # Expected: Modules/<Name>/<Version>/ (with something inside it)
+            $versionedPattern = "Modules/$modName/$modVer/"
+            $hasVersioned = $entries | Where-Object { $_ -like "$versionedPattern*" }
+
+            if (-not $hasVersioned) {
+                # Check if it exists flat (common bug)
+                $flatPattern = "Modules/$modName/"
+                $hasFlat = $entries | Where-Object { $_ -like "$flatPattern*" -and $_ -notlike "$flatPattern*/*/*/*" }
+                if ($hasFlat) {
+                    $errors += "Module '$modName' has flat structure (Modules/$modName/...) but Azure requires versioned path (Modules/$modName/$modVer/...)"
+                } else {
+                    $errors += "Module '$modName' v$modVer not found in ZIP at all (expected Modules/$modName/$modVer/)"
+                }
+            }
+        }
+    }
+    catch {
+        $errors += "Failed to inspect ZIP: $($_.Exception.Message)"
+    }
+    return $errors
+}
+
+function Repair-ZipModuleStructure([string]$zipPath, [hashtable]$expectedModules) {
+    # Restages the ZIP with versioned module paths: Modules/<Name>/<Version>/...
+    # Returns $true on success, $false on failure
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+        $tmpStage = Join-Path ([System.IO.Path]::GetTempPath()) "zip-repair-$(Get-Random)"
+        New-Item -Path $tmpStage -ItemType Directory -Force | Out-Null
+
+        # Extract
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $tmpStage)
+
+        # Restage each module with version folder
+        foreach ($modName in $expectedModules.Keys) {
+            $modVer = $expectedModules[$modName]
+            $flatPath = Join-Path $tmpStage "Modules/$modName"
+            $versionedPath = Join-Path $tmpStage "Modules/$modName/$modVer"
+
+            if ((Test-Path $flatPath) -and -not (Test-Path $versionedPath)) {
+                # Move contents into versioned subfolder
+                $tmpMove = Join-Path ([System.IO.Path]::GetTempPath()) "mod-move-$(Get-Random)"
+                Move-Item -Path $flatPath -Destination $tmpMove -Force
+                New-Item -Path $versionedPath -ItemType Directory -Force | Out-Null
+                Get-ChildItem -Path $tmpMove -Force | Move-Item -Destination $versionedPath -Force
+                Remove-Item $tmpMove -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        # Repackage
+        Remove-Item $zipPath -Force
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($tmpStage, $zipPath)
+        Remove-Item $tmpStage -Recurse -Force -ErrorAction SilentlyContinue
+        return $true
+    }
+    catch {
+        Write-Host "      Repair failed: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
+}
+
 function Test-ErrorIsFatalDsc([string]$msg) {
     foreach ($pattern in $script:fatalResourcePatterns) {
         if ($msg -match [regex]::Escape($pattern)) { return $true }
@@ -219,6 +312,44 @@ foreach ($dir in $configDirs) {
         $hash = (Get-FileHash -Path $pkg.Path -Algorithm SHA256).Hash
         $sizeKB = [math]::Round((Get-Item $pkg.Path).Length / 1KB)
         Write-Host "   📦 Package: ${sizeKB}KB, SHA256: $($hash.Substring(0,16))..." -ForegroundColor DarkGray
+
+        # ── Validate ZIP module structure ──
+        # Azure requires Modules/<Name>/<Version>/ — local testing doesn't enforce this
+        $expectedMods = Get-MofModules $mofContent
+        if ($expectedMods.Count -gt 0) {
+            $zipErrors = Test-ZipModuleStructure $pkg.Path $expectedMods
+            if ($zipErrors.Count -gt 0) {
+                Write-Host "   ⚠️  ZIP has flat module structure — auto-repairing..." -ForegroundColor Yellow
+                foreach ($ze in $zipErrors) {
+                    Write-Host "      $ze" -ForegroundColor DarkYellow
+                }
+                $repaired = Repair-ZipModuleStructure $pkg.Path $expectedMods
+                if ($repaired) {
+                    # Verify the repair worked
+                    $recheck = Test-ZipModuleStructure $pkg.Path $expectedMods
+                    if ($recheck.Count -gt 0) {
+                        Write-Host "   ❌ FAIL — ZIP repair did not fix structure" -ForegroundColor Red
+                        foreach ($re in $recheck) { Write-Host "      $re" -ForegroundColor Red }
+                        $failures += @{ Name = $name; Error = ($recheck -join ' | ') }
+                        $failed++
+                        Write-Host ''
+                        continue
+                    }
+                    $newHash = (Get-FileHash -Path $pkg.Path -Algorithm SHA256).Hash
+                    $newSizeKB = [math]::Round((Get-Item $pkg.Path).Length / 1KB)
+                    Write-Host "   ✓ ZIP repaired: ${newSizeKB}KB, SHA256: $($newHash.Substring(0,16))..." -ForegroundColor Green
+                } else {
+                    Write-Host "   ❌ FAIL — ZIP module structure invalid and repair failed" -ForegroundColor Red
+                    $failures += @{ Name = $name; Error = ($zipErrors -join ' | ') }
+                    $failed++
+                    Write-Host ''
+                    continue
+                }
+            } else {
+                $modList = ($expectedMods.GetEnumerator() | ForEach-Object { "$($_.Key) v$($_.Value)" }) -join ', '
+                Write-Host "   ✓ ZIP structure: $modList — versioned paths OK" -ForegroundColor DarkGray
+            }
+        }
 
         # Test package
         $testCmd = if (Get-Command 'Test-GuestConfigurationPackage' -ErrorAction SilentlyContinue) {
