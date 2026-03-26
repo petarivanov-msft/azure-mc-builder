@@ -81,6 +81,15 @@ jobs:
       - name: Validate Linux packages
         run: pwsh -File e2e/validate-packages.ps1 -InputDir /tmp/mc-e2e -TargetPlatform Linux
 
+      - name: Upload built packages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: /tmp/mc-e2e/**/output/*.zip
+          retention-days: 5
+          if-no-files-found: ignore
+
   # ─────────────────────────────────────────────────────────
   # E2E: Windows packages (windows runner)
   # ─────────────────────────────────────────────────────────
@@ -111,6 +120,15 @@ jobs:
         run: |
           $inputDir = Join-Path $env:RUNNER_TEMP 'mc-e2e'
           & .\e2e\validate-packages.ps1 -InputDir $inputDir -TargetPlatform Windows
+
+      - name: Upload built packages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages
+          path: ${{ runner.temp }}/mc-e2e/**/output/*.zip
+          retention-days: 5
+          if-no-files-found: ignore
 
   # ─────────────────────────────────────────────────────────
   # Summary — posts a PR comment with test results
