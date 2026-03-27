@@ -352,14 +352,16 @@ $policyName = "MC-$configName"
 $displayName = "Machine Configuration: $configName"
 
 # Auto-cleanup existing policy before redeploy
-$existingAssignment = Get-AzPolicyAssignment -Name "assign-$configName" -ErrorAction SilentlyContinue
+$existingAssignment = $null
+try { $existingAssignment = Get-AzPolicyAssignment -Name "assign-$configName" } catch {}
 if ($existingAssignment) {
     Write-Host "   🗑️  Removing existing assignment: assign-$configName" -ForegroundColor Yellow
     Remove-AzPolicyAssignment -Name "assign-$configName" -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 5
 }
 
-$existingDef = Get-AzPolicyDefinition -Name $policyName -ErrorAction SilentlyContinue
+$existingDef = $null
+try { $existingDef = Get-AzPolicyDefinition -Name $policyName } catch {}
 if ($existingDef) {
     Write-Host "   🗑️  Removing existing policy definition: $policyName" -ForegroundColor Yellow
     Remove-AzPolicyDefinition -Name $policyName -Force -ErrorAction SilentlyContinue
