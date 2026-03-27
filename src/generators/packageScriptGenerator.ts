@@ -96,14 +96,24 @@ if ($requiredModules.Count -eq 0) {
 Write-Host "   Found $($requiredModules.Count) module(s): $($requiredModules.Keys -join ', ')" -ForegroundColor Gray
 
 # ─── Install Modules ────────────────────────────────────────────────────────
-Write-Host '📦 Installing required modules...' -ForegroundColor Cyan
+Write-Host '📦 Checking required modules...' -ForegroundColor Cyan
 
-Install-Module -Name GuestConfiguration -Force -Scope CurrentUser -ErrorAction Stop
+if (-not (Get-Module -ListAvailable -Name GuestConfiguration)) {
+    Write-Host '   Installing GuestConfiguration...' -ForegroundColor Gray
+    Install-Module -Name GuestConfiguration -Force -Scope CurrentUser -ErrorAction Stop
+} else {
+    Write-Host '   GuestConfiguration ✓' -ForegroundColor Gray
+}
 
 foreach ($modName in $requiredModules.Keys) {
     $modVer = $requiredModules[$modName]
-    Write-Host "   Installing $modName v$modVer..."
-    Install-Module -Name $modName -RequiredVersion $modVer -Force -Scope CurrentUser -ErrorAction Stop
+    $existing = Get-Module -ListAvailable -Name $modName | Where-Object { $_.Version.ToString() -eq $modVer }
+    if ($existing) {
+        Write-Host "   $modName v$modVer ✓" -ForegroundColor Gray
+    } else {
+        Write-Host "   Installing $modName v$modVer..." -ForegroundColor Gray
+        Install-Module -Name $modName -RequiredVersion $modVer -Force -Scope CurrentUser -ErrorAction Stop
+    }
 }
 
 # ─── Create Package ──────────────────────────────────────────────────────────
