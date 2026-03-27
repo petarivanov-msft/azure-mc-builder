@@ -225,7 +225,7 @@ function generateDeployThen(config: ConfigurationState): object {
                 properties: {
                   publisher: 'Microsoft.GuestConfiguration',
                   type: extensionType,
-                  typeHandlerVersion: '1.*',
+                  typeHandlerVersion: '1.0',
                   autoUpgradeMinorVersion: true,
                 },
                 dependsOn: [

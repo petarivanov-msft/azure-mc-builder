@@ -130,7 +130,7 @@ describe('policyGenerator', () => {
       expect(ext.condition).toContain('Microsoft.Compute/virtualMachines');
     });
 
-    it('uses typeHandlerVersion 1.* for auto-upgrade compatibility', () => {
+    it('uses typeHandlerVersion 1.0 for auto-upgrade compatibility', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet' })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
       const ext = resources.find((r: any) => r.type === 'Microsoft.Compute/virtualMachines/extensions');
@@ -267,7 +267,7 @@ describe('policyGenerator', () => {
       }
     });
 
-    it('DINE policy includes GC extension with typeHandlerVersion 1.*', () => {
+    it('DINE policy includes GC extension with typeHandlerVersion 1.0', () => {
       const policy = generatePolicyJson(makeConfig({
         mode: 'AuditAndSet',
         resources: [{ id: '1', schemaName: 'Registry', instanceName: 'R1', properties: { Key: 'HKLM:\\Test', ValueName: 'V' }, dependsOn: [] }],
