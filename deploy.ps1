@@ -44,6 +44,9 @@ param(
     [ValidateSet('Audit', 'AuditAndSet')]
     [string]$Mode = 'Audit',
 
+    [ValidateSet('Windows', 'Linux', 'Auto')]
+    [string]$Platform = 'Auto',
+
     [switch]$SkipLogin
 )
 
@@ -210,6 +213,37 @@ if (Test-Path $policyJsonPath) {
     # Build a minimal AINE policy inline
     Write-Host "   No policy.json found — building minimal Audit policy inline" -ForegroundColor Yellow
 
+    # Auto-detect platform from config name or package contents
+    $detectedPlatform = $Platform
+    if ($detectedPlatform -eq 'Auto') {
+        # Heuristic: check MOF inside ZIP for nxtools (Linux) vs PSDscResources/other Windows modules
+        try {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $PackagePath))
+            $mofEntry = $zip.Entries | Where-Object { $_.Name -like '*.mof' } | Select-Object -First 1
+            if ($mofEntry) {
+                $reader = [System.IO.StreamReader]::new($mofEntry.Open())
+                $mofText = $reader.ReadToEnd()
+                $reader.Close()
+                if ($mofText -match 'nxtools') {
+                    $detectedPlatform = 'Linux'
+                } else {
+                    $detectedPlatform = 'Windows'
+                }
+            } else {
+                $detectedPlatform = 'Windows'
+            }
+            $zip.Dispose()
+        } catch {
+            $detectedPlatform = 'Windows'
+        }
+        Write-Host "   Auto-detected platform: $detectedPlatform" -ForegroundColor Gray
+    }
+
+    $isWindows = $detectedPlatform -eq 'Windows'
+    $osTypeFilter = if ($isWindows) { 'Windows*' } else { 'Linux*' }
+    $osProfileField = if ($isWindows) { 'windowsConfiguration' } else { 'linuxConfiguration' }
+
     $effect = if ($Mode -eq 'AuditAndSet') { 'deployIfNotExists' } else { 'auditIfNotExists' }
     $configType = if ($Mode -eq 'AuditAndSet') { 'ApplyAndAutoCorrect' } else { 'Audit' }
 
@@ -218,9 +252,12 @@ if (Test-Path $policyJsonPath) {
             'anyOf' = @(
                 @{ 'allOf' = @(
                     @{ 'field' = 'type'; 'equals' = 'Microsoft.Compute/virtualMachines' }
+                    @{ 'field' = 'Microsoft.Compute/virtualMachines/storageProfile.osDisk.osType'; 'like' = $osTypeFilter }
+                    @{ 'field' = "Microsoft.Compute/virtualMachines/osProfile.$osProfileField"; 'exists' = 'true' }
                 )}
                 @{ 'allOf' = @(
                     @{ 'field' = 'type'; 'equals' = 'Microsoft.HybridCompute/machines' }
+                    @{ 'field' = 'Microsoft.HybridCompute/machines/osName'; 'like' = $osTypeFilter }
                 )}
             )
         }
