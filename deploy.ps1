@@ -94,6 +94,23 @@ if ($ConfigPath) {
 
     $configName = $mofFile.BaseName
 
+    # ─── Auto-detect mode from config JSON (if -Mode not explicitly passed) ───
+    if (-not $PSBoundParameters.ContainsKey('Mode')) {
+        $configJsonFiles = Get-ChildItem -Path $configDir -Filter '*.json' | Where-Object { $_.Name -ne 'policy.json' }
+        foreach ($cjf in $configJsonFiles) {
+            try {
+                $cjContent = Get-Content $cjf.FullName -Raw | ConvertFrom-Json
+                if ($cjContent.mode) {
+                    $detectedMode = $cjContent.mode
+                    if ($detectedMode -eq 'AuditAndSet') { $Mode = 'AuditAndSet' }
+                    elseif ($detectedMode -eq 'Audit') { $Mode = 'Audit' }
+                    Write-Host "   Auto-detected mode from $($cjf.Name): $Mode" -ForegroundColor Gray
+                    break
+                }
+            } catch { }
+        }
+    }
+
     Write-Host ''
     Write-Host "╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║  Azure Machine Configuration — Build & Deploy                ║" -ForegroundColor Cyan
