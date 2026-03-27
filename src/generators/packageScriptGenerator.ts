@@ -59,7 +59,7 @@ if (-not (Test-Path $mofPath)) {
 
 # ─── Detect Required Modules from MOF ───────────────────────────────────────
 # Parse ModuleName/ModuleVersion pairs from the MOF's OMI_ConfigurationDocument
-Write-Host '🔍 Detecting required DSC modules from MOF...' -ForegroundColor Cyan
+Write-Host '[DETECT] Detecting required DSC modules from MOF...' -ForegroundColor Cyan
 
 $mofContent = Get-Content $mofPath -Raw
 
@@ -96,20 +96,20 @@ if ($requiredModules.Count -eq 0) {
 Write-Host "   Found $($requiredModules.Count) module(s): $($requiredModules.Keys -join ', ')" -ForegroundColor Gray
 
 # ─── Install Modules ────────────────────────────────────────────────────────
-Write-Host '📦 Checking required modules...' -ForegroundColor Cyan
+Write-Host '[MODULES] Checking required modules...' -ForegroundColor Cyan
 
 if (-not (Get-Module -ListAvailable -Name GuestConfiguration)) {
     Write-Host '   Installing GuestConfiguration...' -ForegroundColor Gray
     Install-Module -Name GuestConfiguration -Force -Scope CurrentUser -ErrorAction Stop
 } else {
-    Write-Host '   GuestConfiguration ✓' -ForegroundColor Gray
+    Write-Host '   GuestConfiguration OK' -ForegroundColor Gray
 }
 
 foreach ($modName in $requiredModules.Keys) {
     $modVer = $requiredModules[$modName]
     $existing = Get-Module -ListAvailable -Name $modName | Where-Object { $_.Version.ToString() -eq $modVer }
     if ($existing) {
-        Write-Host "   $modName v$modVer ✓" -ForegroundColor Gray
+        Write-Host "   $modName v$modVer OK" -ForegroundColor Gray
     } else {
         Write-Host "   Installing $modName v$modVer..." -ForegroundColor Gray
         Install-Module -Name $modName -RequiredVersion $modVer -Force -Scope CurrentUser -ErrorAction Stop
@@ -118,7 +118,7 @@ foreach ($modName in $requiredModules.Keys) {
 
 # ─── Create Package ──────────────────────────────────────────────────────────
 $outputDir = Join-Path $PSScriptRoot 'output'
-Write-Host "🔨 Creating MC package (Type: ${packageType})..." -ForegroundColor Cyan
+Write-Host "[BUILD] Creating MC package (Type: ${packageType})..." -ForegroundColor Cyan
 
 $package = New-GuestConfigurationPackage \`
     -Name '${safeName}' \`
@@ -130,7 +130,7 @@ $package = New-GuestConfigurationPackage \`
 # ─── Fix Module Structure (Azure GC requires versioned paths) ────────────────
 # New-GuestConfigurationPackage sometimes creates flat Modules/ModuleName/ paths
 # but the GC agent requires Modules/ModuleName/ModuleVersion/ — fix it in-place
-Write-Host '🔧 Checking ZIP module structure...' -ForegroundColor Cyan
+Write-Host '[CHECK] Checking ZIP module structure...' -ForegroundColor Cyan
 Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
 
 $zipPath = $package.Path
@@ -146,7 +146,7 @@ foreach ($modName in $requiredModules.Keys) {
     if (-not $hasVersioned) {
         $hasFlat = $entries | Where-Object { $_ -like "Modules/$modName/*" }
         if ($hasFlat) {
-            Write-Host "   ⚠️  $modName is flat — needs versioned subfolder" -ForegroundColor Yellow
+            Write-Host "   [WARN] $modName is flat — needs versioned subfolder" -ForegroundColor Yellow
             $needsRepair = $true
         }
     }
@@ -172,21 +172,21 @@ if ($needsRepair) {
     Remove-Item $zipPath -Force
     [System.IO.Compression.ZipFile]::CreateFromDirectory($tmpStage, $zipPath)
     Remove-Item $tmpStage -Recurse -Force
-    Write-Host '   ✅ Module paths fixed' -ForegroundColor Green
+    Write-Host '   [OK] Module paths fixed' -ForegroundColor Green
 } else {
-    Write-Host '   ✅ Module structure OK' -ForegroundColor Green
+    Write-Host '   [OK] Module structure OK' -ForegroundColor Green
 }
 
 $hash = (Get-FileHash -Path $package.Path -Algorithm SHA256).Hash
 
 Write-Host ''
-Write-Host '✅ Package created successfully!' -ForegroundColor Green
+Write-Host '[OK] Package created successfully!' -ForegroundColor Green
 Write-Host "   Path: $($package.Path)"
 Write-Host "   Hash: $hash"
 Write-Host ''
 
 # ─── Local Compliance Test ───────────────────────────────────────────────────
-Write-Host '🧪 Running local compliance test...' -ForegroundColor Cyan
+Write-Host '[TEST] Running local compliance test...' -ForegroundColor Cyan
 
 # On Windows, the GC worker writes to C:\\ProgramData\\GuestConfig which requires elevation
 $runningOnWindows = $PSVersionTable.PSVersion -and ($IsWindows -or $env:OS -eq 'Windows_NT')
@@ -195,7 +195,7 @@ $isElevated = if ($runningOnWindows) {
 } else { $true }
 
 if (-not $isElevated) {
-    Write-Host '   ⚠️  Skipping — local compliance test requires Administrator privileges on Windows.' -ForegroundColor Yellow
+    Write-Host '   [WARN] Skipping — local compliance test requires Administrator privileges on Windows.' -ForegroundColor Yellow
     Write-Host '   Run this script in an elevated PowerShell to test locally, or deploy directly to Azure.' -ForegroundColor Gray
 } else {
     try {
@@ -208,19 +208,19 @@ if (-not $isElevated) {
         Write-Host "   Status: $($result.complianceStatus)" -ForegroundColor $(if ($result.complianceStatus -eq $true -or $result.complianceStatus -eq 'Compliant') { 'Green' } else { 'Yellow' })
         if ($result.resources) {
             foreach ($r in $result.resources) {
-                $icon = if ($r.complianceStatus -eq $true -or $r.complianceStatus -eq 'True' -or $r.complianceStatus -eq 'Compliant') { '✅' } else { '❌' }
+                $icon = if ($r.complianceStatus -eq $true -or $r.complianceStatus -eq 'True' -or $r.complianceStatus -eq 'Compliant') { '[OK]' } else { '[FAIL]' }
                 Write-Host "   $icon $($r.properties.ConfigurationName) — $($r.complianceStatus)"
             }
         }
     } catch {
-        Write-Host "   ⚠️  Local test failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "   [WARN] Local test failed: $($_.Exception.Message)" -ForegroundColor Yellow
         Write-Host '   This does not affect the package — deploy to Azure to validate.' -ForegroundColor Gray
     }
 }
 Write-Host ''
 
 # ─── Next Steps ──────────────────────────────────────────────────────────────
-Write-Host '📋 Next steps:' -ForegroundColor Cyan
+Write-Host '[NEXT] Next steps:' -ForegroundColor Cyan
 Write-Host "   1. Upload output\\${safeName}.zip to Azure Blob Storage"
 Write-Host '   2. Open policy.json — replace {{contentUri}} with the blob URL (SAS token)'
 Write-Host "   3. Replace {{contentHash}} with: $hash"
@@ -228,7 +228,7 @@ Write-Host '   4. Create the policy definition:'
 Write-Host "      New-AzPolicyDefinition -Name '${safeName}' -Policy '.\\policy.json' -Mode 'Indexed'"
 Write-Host '   5. Assign the policy to your target scope'
 Write-Host ''
-Write-Host '⚠️  VM Prerequisites — assign this built-in initiative at subscription level:' -ForegroundColor Yellow
+Write-Host '[WARN] VM Prerequisites — assign this built-in initiative at subscription level:' -ForegroundColor Yellow
 Write-Host '   "Deploy prerequisites to enable Guest Configuration policies on virtual machines"'
 Write-Host '   Initiative ID: 12794019-7a00-42cf-95c2-882eed337cc8'
 Write-Host '   Note: Arc-enabled servers already include the GC agent — no prerequisites needed.' -ForegroundColor Gray
