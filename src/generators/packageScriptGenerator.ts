@@ -117,6 +117,56 @@ $package = New-GuestConfigurationPackage \`
     -Type '${packageType}' \`
     -Force
 
+# ─── Fix Module Structure (Azure GC requires versioned paths) ────────────────
+# New-GuestConfigurationPackage sometimes creates flat Modules/ModuleName/ paths
+# but the GC agent requires Modules/ModuleName/ModuleVersion/ — fix it in-place
+Write-Host '🔧 Checking ZIP module structure...' -ForegroundColor Cyan
+Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+
+$zipPath = $package.Path
+$needsRepair = $false
+
+$zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+$entries = $zip.Entries | ForEach-Object { $_.FullName }
+$zip.Dispose()
+
+foreach ($modName in $requiredModules.Keys) {
+    $modVer = $requiredModules[$modName]
+    $hasVersioned = $entries | Where-Object { $_ -like "Modules/$modName/$modVer/*" }
+    if (-not $hasVersioned) {
+        $hasFlat = $entries | Where-Object { $_ -like "Modules/$modName/*" }
+        if ($hasFlat) {
+            Write-Host "   ⚠️  $modName is flat — needs versioned subfolder" -ForegroundColor Yellow
+            $needsRepair = $true
+        }
+    }
+}
+
+if ($needsRepair) {
+    Write-Host '   Repackaging with versioned module paths...' -ForegroundColor Yellow
+    $tmpStage = Join-Path ([System.IO.Path]::GetTempPath()) "zip-repair-$(Get-Random)"
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $tmpStage)
+
+    foreach ($modName in $requiredModules.Keys) {
+        $modVer = $requiredModules[$modName]
+        $flatDir = Join-Path $tmpStage "Modules/$modName"
+        $versionedDir = Join-Path $tmpStage "Modules/$modName/$modVer"
+        if ((Test-Path $flatDir) -and -not (Test-Path $versionedDir)) {
+            $tempMove = Join-Path ([System.IO.Path]::GetTempPath()) "mod-move-$(Get-Random)"
+            Move-Item $flatDir $tempMove
+            New-Item -ItemType Directory -Path $flatDir -Force | Out-Null
+            Move-Item $tempMove $versionedDir
+        }
+    }
+
+    Remove-Item $zipPath -Force
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($tmpStage, $zipPath)
+    Remove-Item $tmpStage -Recurse -Force
+    Write-Host '   ✅ Module paths fixed' -ForegroundColor Green
+} else {
+    Write-Host '   ✅ Module structure OK' -ForegroundColor Green
+}
+
 $hash = (Get-FileHash -Path $package.Path -Algorithm SHA256).Hash
 
 Write-Host ''
