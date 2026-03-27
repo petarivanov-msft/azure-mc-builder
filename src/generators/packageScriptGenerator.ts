@@ -189,8 +189,8 @@ Write-Host ''
 Write-Host '🧪 Running local compliance test...' -ForegroundColor Cyan
 
 # On Windows, the GC worker writes to C:\\ProgramData\\GuestConfig which requires elevation
-$isWindows = $PSVersionTable.PSVersion -and ($IsWindows -or $env:OS -eq 'Windows_NT')
-$isElevated = if ($isWindows) {
+$runningOnWindows = $PSVersionTable.PSVersion -and ($IsWindows -or $env:OS -eq 'Windows_NT')
+$isElevated = if ($runningOnWindows) {
     ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 } else { $true }
 
