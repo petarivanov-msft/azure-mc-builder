@@ -433,7 +433,6 @@ if (Test-Path $policyJsonPath) {
                 @{ 'allOf' = @(
                     @{ 'field' = 'type'; 'equals' = 'Microsoft.Compute/virtualMachines' }
                     @{ 'field' = 'Microsoft.Compute/virtualMachines/storageProfile.osDisk.osType'; 'like' = $osTypeFilter }
-                    @{ 'field' = "Microsoft.Compute/virtualMachines/osProfile.$osProfileField"; 'exists' = 'true' }
                 )}
                 @{ 'allOf' = @(
                     @{ 'field' = 'type'; 'equals' = 'Microsoft.HybridCompute/machines' }
