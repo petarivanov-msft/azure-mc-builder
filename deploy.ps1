@@ -94,20 +94,35 @@ if ($ConfigPath) {
 
     $configName = $mofFile.BaseName
 
-    # ─── Auto-detect mode from config JSON (if -Mode not explicitly passed) ───
+    # ─── Auto-detect mode from config JSON or policy.json (if -Mode not explicitly passed) ───
     if (-not $PSBoundParameters.ContainsKey('Mode')) {
+        $modeDetected = $false
+
+        # 1. Try config JSON files (tool output)
         $configJsonFiles = Get-ChildItem -Path $configDir -Filter '*.json' | Where-Object { $_.Name -ne 'policy.json' }
         foreach ($cjf in $configJsonFiles) {
             try {
                 $cjContent = Get-Content $cjf.FullName -Raw | ConvertFrom-Json
                 if ($cjContent.mode) {
-                    $detectedMode = $cjContent.mode
-                    if ($detectedMode -eq 'AuditAndSet') { $Mode = 'AuditAndSet' }
-                    elseif ($detectedMode -eq 'Audit') { $Mode = 'Audit' }
+                    if ($cjContent.mode -eq 'AuditAndSet') { $Mode = 'AuditAndSet' }
+                    elseif ($cjContent.mode -eq 'Audit') { $Mode = 'Audit' }
                     Write-Host "   Auto-detected mode from $($cjf.Name): $Mode" -ForegroundColor Gray
+                    $modeDetected = $true
                     break
                 }
             } catch { }
+        }
+
+        # 2. Fallback: infer from policy.json effect
+        if (-not $modeDetected) {
+            $policyJsonCheck = Join-Path $configDir 'policy.json'
+            if (Test-Path $policyJsonCheck) {
+                $pjRaw = Get-Content $policyJsonCheck -Raw
+                if ($pjRaw -match 'deployIfNotExists') {
+                    $Mode = 'AuditAndSet'
+                    Write-Host "   Auto-detected mode from policy.json effect: $Mode" -ForegroundColor Gray
+                }
+            }
         }
     }
 
