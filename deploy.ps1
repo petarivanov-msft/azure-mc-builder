@@ -352,17 +352,18 @@ $policyName = "MC-$configName"
 $displayName = "Machine Configuration: $configName"
 
 # Auto-cleanup existing policy before redeploy
-$existingAssignment = $null
-try { $existingAssignment = Get-AzPolicyAssignment -Name "assign-$configName" -ErrorAction SilentlyContinue 2>$null } catch {}
-if ($existingAssignment) {
-    Write-Host "   🗑️  Removing existing assignment: assign-$configName" -ForegroundColor Yellow
-    Remove-AzPolicyAssignment -Name "assign-$configName" -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 5
-}
-
+# Find assignments by policy definition (name may have random suffix from prior runs)
 $existingDef = $null
 try { $existingDef = Get-AzPolicyDefinition -Name $policyName -ErrorAction SilentlyContinue 2>$null } catch {}
 if ($existingDef) {
+    # Remove all assignments pointing at this policy definition
+    $linkedAssignments = Get-AzPolicyAssignment | Where-Object { $_.PolicyDefinitionId -eq $existingDef.PolicyDefinitionId }
+    foreach ($linked in $linkedAssignments) {
+        Write-Host "   🗑️  Removing existing assignment: $($linked.Name)" -ForegroundColor Yellow
+        Remove-AzPolicyAssignment -Name $linked.Name -Scope $linked.Scope -ErrorAction SilentlyContinue
+    }
+    if ($linkedAssignments) { Start-Sleep -Seconds 5 }
+
     Write-Host "   🗑️  Removing existing policy definition: $policyName" -ForegroundColor Yellow
     Remove-AzPolicyDefinition -Name $policyName -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 5
@@ -496,7 +497,9 @@ Write-Host ''
 
 Write-Host '🎯 Assigning policy...' -ForegroundColor Cyan
 
-$assignmentName = "assign-$configName"
+# Generate a unique assignment name with random hex suffix (like built-in policies do)
+$randomSuffix = -join ((1..12) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
+$assignmentName = "assign-$configName-$randomSuffix"
 if ($assignmentName.Length -gt 64) { $assignmentName = $assignmentName.Substring(0, 64) }
 
 $assignParams = @{
@@ -594,7 +597,7 @@ Write-Host "  Policy Assignment: $($assignment.Name)" -ForegroundColor White
 Write-Host "  Scope:             $($assignParams.Scope)" -ForegroundColor White
 Write-Host ''
 Write-Host '  ⏱  The GC agent evaluates every 15 minutes. Check compliance:' -ForegroundColor Gray
-Write-Host "     Get-AzPolicyState -PolicyAssignmentName '$assignmentName'" -ForegroundColor Gray
+Write-Host "     Get-AzPolicyState -PolicyDefinitionName '$policyName'" -ForegroundColor Gray
 Write-Host ''
 Write-Host '  ⚠️  VM Prerequisites — ensure this built-in initiative is assigned:' -ForegroundColor Yellow
 Write-Host '     "Deploy prerequisites to enable Guest Configuration policies on VMs"' -ForegroundColor Yellow
