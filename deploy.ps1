@@ -136,7 +136,7 @@ if ($ConfigPath) {
     Write-Host ''
 
     # ─── Detect required modules from MOF ─────────────────────────────────────
-    Write-Host '🔍 Detecting required DSC modules from MOF...' -ForegroundColor Cyan
+    Write-Host '[DETECT] Detecting required DSC modules from MOF...' -ForegroundColor Cyan
     $mofContent = Get-Content $mofFile.FullName -Raw
 
     $moduleRegex = [regex]'ModuleName\s*=\s*"(?<name>[^"]+)"\s*;\s*ModuleVersion\s*=\s*"(?<ver>[^"]+)"'
@@ -159,7 +159,7 @@ if ($ConfigPath) {
     Write-Host "   Found $($requiredModules.Count) module(s): $($requiredModules.Keys -join ', ')" -ForegroundColor Gray
 
     # ─── Install modules ──────────────────────────────────────────────────────
-    Write-Host '📦 Installing required modules...' -ForegroundColor Cyan
+    Write-Host '[INSTALL] Installing required modules...' -ForegroundColor Cyan
 
     if (-not (Get-Module -ListAvailable -Name GuestConfiguration)) {
         Install-Module -Name GuestConfiguration -Force -Scope CurrentUser -ErrorAction Stop
@@ -181,7 +181,7 @@ if ($ConfigPath) {
     # ─── Create package ──────────────────────────────────────────────────────
     $outputDir = Join-Path $configDir 'output'
     $packageType = if ($Mode -eq 'AuditAndSet') { 'AuditAndSet' } else { 'Audit' }
-    Write-Host "🔨 Creating MC package (Type: $packageType)..." -ForegroundColor Cyan
+    Write-Host "[BUILD] Creating MC package (Type: $packageType)..." -ForegroundColor Cyan
 
     $package = New-GuestConfigurationPackage `
         -Name $configName `
@@ -191,7 +191,7 @@ if ($ConfigPath) {
         -Force
 
     # ─── Fix module structure (Azure GC requires versioned paths) ─────────────
-    Write-Host '🔧 Checking ZIP module structure...' -ForegroundColor Cyan
+    Write-Host '[CHECK] Checking ZIP module structure...' -ForegroundColor Cyan
     Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
 
     $zipPath = $package.Path
@@ -207,7 +207,7 @@ if ($ConfigPath) {
         if (-not $hasVersioned) {
             $hasFlat = $entries | Where-Object { $_ -like "Modules/$modName/*" }
             if ($hasFlat) {
-                Write-Host "   ⚠️  $modName is flat — needs versioned subfolder" -ForegroundColor Yellow
+                Write-Host "   [WARN] $modName is flat — needs versioned subfolder" -ForegroundColor Yellow
                 $needsRepair = $true
             }
         }
@@ -233,23 +233,23 @@ if ($ConfigPath) {
         Remove-Item $zipPath -Force
         [System.IO.Compression.ZipFile]::CreateFromDirectory($tmpStage, $zipPath)
         Remove-Item $tmpStage -Recurse -Force
-        Write-Host '   ✅ Module paths fixed' -ForegroundColor Green
+        Write-Host '   [OK] Module paths fixed' -ForegroundColor Green
     } else {
-        Write-Host '   ✅ Module structure OK' -ForegroundColor Green
+        Write-Host '   [OK] Module structure OK' -ForegroundColor Green
     }
 
     $PackagePath = $zipPath
 
     # ─── Optional local compliance test ───────────────────────────────────────
     if (-not $SkipTest) {
-        Write-Host '🧪 Running local compliance test...' -ForegroundColor Cyan
+        Write-Host '[TEST] Running local compliance test...' -ForegroundColor Cyan
         $isWin = $PSVersionTable.PSVersion -and ($IsWindows -or $env:OS -eq 'Windows_NT')
         $isElevated = if ($isWin) {
             ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
         } else { $true }
 
         if (-not $isElevated) {
-            Write-Host '   ⚠️  Skipping — requires Administrator on Windows' -ForegroundColor Yellow
+            Write-Host '   [WARN] Skipping — requires Administrator on Windows' -ForegroundColor Yellow
         } else {
             try {
                 $testCmd = if (Get-Command 'Test-GuestConfigurationPackage' -ErrorAction SilentlyContinue) {
@@ -260,7 +260,7 @@ if ($ConfigPath) {
                 $result = & $testCmd -Path $PackagePath
                 Write-Host "   Status: $($result.complianceStatus)" -ForegroundColor $(if ($result.complianceStatus -eq $true -or $result.complianceStatus -eq 'Compliant') { 'Green' } else { 'Yellow' })
             } catch {
-                Write-Host "   ⚠️  Local test failed: $($_.Exception.Message)" -ForegroundColor Yellow
+                Write-Host "   [WARN] Local test failed: $($_.Exception.Message)" -ForegroundColor Yellow
             }
         }
         Write-Host ''
@@ -295,11 +295,11 @@ if (-not $ConfigPath) {
 if (-not $SkipLogin) {
     $context = Get-AzContext -ErrorAction SilentlyContinue
     if (-not $context) {
-        Write-Host '🔑 Connecting to Azure...' -ForegroundColor Cyan
+        Write-Host '[AUTH] Connecting to Azure...' -ForegroundColor Cyan
         Connect-AzAccount
         $context = Get-AzContext
     } else {
-        Write-Host "🔑 Using existing Azure context: $($context.Account.Id)" -ForegroundColor Gray
+        Write-Host "[AUTH] Using existing Azure context: $($context.Account.Id)" -ForegroundColor Gray
     }
 }
 
@@ -322,7 +322,7 @@ if (-not $StorageAccountName) {
     if ($StorageAccountName.Length -gt 24) { $StorageAccountName = $StorageAccountName.Substring(0, 24) }
 }
 
-Write-Host '📦 Setting up storage...' -ForegroundColor Cyan
+Write-Host '[STORAGE] Setting up storage...' -ForegroundColor Cyan
 
 # Search all RGs for existing storage account (names are globally unique)
 $storage = Get-AzStorageAccount | Where-Object { $_.StorageAccountName -eq $StorageAccountName } | Select-Object -First 1
@@ -373,12 +373,12 @@ $sasToken = New-AzStorageBlobSASToken `
     -Context $storageCtx `
     -FullUri
 
-Write-Host "   ✅ Uploaded with SAS URL (expires $($sasExpiry.ToString('yyyy-MM-dd')))" -ForegroundColor Green
+Write-Host "   [OK] Uploaded with SAS URL (expires $($sasExpiry.ToString('yyyy-MM-dd')))" -ForegroundColor Green
 Write-Host ''
 
 # ─── Create Policy Definition ────────────────────────────────────────────────
 
-Write-Host '📋 Creating policy definition...' -ForegroundColor Cyan
+Write-Host '[POLICY] Creating policy definition...' -ForegroundColor Cyan
 
 $policyName = "MC-$configName"
 $displayName = "Machine Configuration: $configName"
@@ -391,12 +391,12 @@ if ($existingDef) {
     # Remove all assignments pointing at this policy definition
     $linkedAssignments = Get-AzPolicyAssignment | Where-Object { $_.PolicyDefinitionId -eq $existingDef.PolicyDefinitionId }
     foreach ($linked in $linkedAssignments) {
-        Write-Host "   🗑️  Removing existing assignment: $($linked.Name)" -ForegroundColor Yellow
+        Write-Host "   [CLEANUP] Removing existing assignment: $($linked.Name)" -ForegroundColor Yellow
         Remove-AzPolicyAssignment -Name $linked.Name -Scope $linked.Scope -ErrorAction SilentlyContinue
     }
     if ($linkedAssignments) { Start-Sleep -Seconds 5 }
 
-    Write-Host "   🗑️  Removing existing policy definition: $policyName" -ForegroundColor Yellow
+    Write-Host "   [CLEANUP] Removing existing policy definition: $policyName" -ForegroundColor Yellow
     Remove-AzPolicyDefinition -Name $policyName -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 5
 }
@@ -521,13 +521,13 @@ if (Test-Path $policyJsonPath) {
     Remove-Item $tempPolicy -ErrorAction SilentlyContinue
 }
 
-Write-Host "   ✅ Policy created: $($policyDef.Name)" -ForegroundColor Green
+Write-Host "   [OK] Policy created: $($policyDef.Name)" -ForegroundColor Green
 Write-Host "   ID: $($policyDef.PolicyDefinitionId)" -ForegroundColor Gray
 Write-Host ''
 
 # ─── Assign Policy ───────────────────────────────────────────────────────────
 
-Write-Host '🎯 Assigning policy...' -ForegroundColor Cyan
+Write-Host '[ASSIGN] Assigning policy...' -ForegroundColor Cyan
 
 # Generate a unique assignment name with random hex suffix (like built-in policies do)
 $randomSuffix = -join ((1..12) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
@@ -570,16 +570,16 @@ switch ($Scope) {
 if ($Mode -eq 'AuditAndSet') {
     $assignParams.Location = $Location
     $assignParams.IdentityType = 'SystemAssigned'
-    Write-Host "   ℹ️  AuditAndSet mode — managed identity will be created" -ForegroundColor Gray
+    Write-Host "   [INFO] AuditAndSet mode — managed identity will be created" -ForegroundColor Gray
 }
 
 $assignment = New-AzPolicyAssignment @assignParams
 
-Write-Host "   ✅ Policy assigned: $($assignment.Name)" -ForegroundColor Green
+Write-Host "   [OK] Policy assigned: $($assignment.Name)" -ForegroundColor Green
 Write-Host ''
 
 if ($Mode -eq 'AuditAndSet' -and $assignment.Identity.PrincipalId) {
-    Write-Host '🔐 Granting remediation permissions...' -ForegroundColor Cyan
+    Write-Host '[RBAC] Granting remediation permissions...' -ForegroundColor Cyan
     $retries = 0
     while ($retries -lt 5) {
         try {
@@ -587,12 +587,12 @@ if ($Mode -eq 'AuditAndSet' -and $assignment.Identity.PrincipalId) {
                 -ObjectId $assignment.Identity.PrincipalId `
                 -RoleDefinitionName 'Contributor' `
                 -Scope $assignParams.Scope | Out-Null
-            Write-Host "   ✅ Contributor role assigned to managed identity" -ForegroundColor Green
+            Write-Host "   [OK] Contributor role assigned to managed identity" -ForegroundColor Green
             break
         } catch {
             $retries++
             if ($retries -ge 5) {
-                Write-Host "   ⚠️  Could not assign role — do it manually" -ForegroundColor Yellow
+                Write-Host "   [WARN] Could not assign role — do it manually" -ForegroundColor Yellow
             } else { Start-Sleep -Seconds 5 }
         }
     }
@@ -601,7 +601,7 @@ if ($Mode -eq 'AuditAndSet' -and $assignment.Identity.PrincipalId) {
 
 # ─── Trigger compliance scan ─────────────────────────────────────────────────
 
-Write-Host '🔄 Triggering compliance scan...' -ForegroundColor Cyan
+Write-Host '[SCAN] Triggering compliance scan...' -ForegroundColor Cyan
 try {
     if ($ResourceGroupName) {
         Start-AzPolicyComplianceScan -ResourceGroupName $ResourceGroupName -AsJob | Out-Null
@@ -611,14 +611,14 @@ try {
         Write-Host "   Scan started for subscription" -ForegroundColor Gray
     }
 } catch {
-    Write-Host "   ⚠️  Could not trigger scan: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "   [WARN] Could not trigger scan: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 Write-Host ''
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
 Write-Host "╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Green
-Write-Host "║  ✅ Deployment Complete                                      ║" -ForegroundColor Green
+Write-Host "║  Deployment Complete                                      ║" -ForegroundColor Green
 Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Green
 Write-Host ''
 Write-Host "  Package:           $configName" -ForegroundColor White
@@ -628,10 +628,10 @@ Write-Host "  Policy Definition: $($policyDef.PolicyDefinitionId)" -ForegroundCo
 Write-Host "  Policy Assignment: $($assignment.Name)" -ForegroundColor White
 Write-Host "  Scope:             $($assignParams.Scope)" -ForegroundColor White
 Write-Host ''
-Write-Host '  ⏱  The GC agent evaluates every 15 minutes. Check compliance:' -ForegroundColor Gray
+Write-Host '  The GC agent evaluates every 15 minutes. Check compliance:' -ForegroundColor Gray
 Write-Host "     Get-AzPolicyState -PolicyDefinitionName '$policyName'" -ForegroundColor Gray
 Write-Host ''
-Write-Host '  ⚠️  VM Prerequisites — ensure this built-in initiative is assigned:' -ForegroundColor Yellow
+Write-Host '  VM Prerequisites — ensure this built-in initiative is assigned:' -ForegroundColor Yellow
 Write-Host '     "Deploy prerequisites to enable Guest Configuration policies on VMs"' -ForegroundColor Yellow
 Write-Host '     Initiative ID: 12794019-7a00-42cf-95c2-882eed337cc8' -ForegroundColor Yellow
 Write-Host ''
