@@ -152,7 +152,7 @@ if (-not $container) {
 
 # ─── Upload Package ──────────────────────────────────────────────────────────
 
-$blobName = "$configName.zip"
+$blobName = "$configName-$($hash.Substring(0,8).ToLower()).zip"
 Write-Host "   Uploading $blobName..." -ForegroundColor Gray
 
 Set-AzStorageBlobContent `
@@ -181,6 +181,22 @@ Write-Host '📋 Creating policy definition...' -ForegroundColor Cyan
 
 $policyName = "MC-$configName"
 $displayName = "Machine Configuration: $configName"
+
+# ─── Check for existing policy (update if exists) ────────────────────────────
+$existingDef = Get-AzPolicyDefinition -Name $policyName -ErrorAction SilentlyContinue
+$existingAssignment = Get-AzPolicyAssignment -Name "assign-$configName" -ErrorAction SilentlyContinue
+
+if ($existingAssignment) {
+    Write-Host "   🗑️  Removing existing assignment: assign-$configName" -ForegroundColor Yellow
+    Remove-AzPolicyAssignment -Name "assign-$configName" -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 5  # Give ARM time to propagate
+}
+
+if ($existingDef) {
+    Write-Host "   🗑️  Removing existing policy definition: $policyName" -ForegroundColor Yellow
+    Remove-AzPolicyDefinition -Name $policyName -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 5
+}
 
 # Check for policy.json next to the package or in parent directory
 $packageDir = Split-Path (Resolve-Path $PackagePath) -Parent
