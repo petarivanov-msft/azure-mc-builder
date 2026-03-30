@@ -31,19 +31,20 @@ The downloaded bundle contains:
 | `metaconfig.json` | MC agent behavior settings (reference copy — `package.ps1` embeds this automatically) |
 | `policy.json` | Azure Policy definition (AuditIfNotExists or DeployIfNotExists) |
 | `package.ps1` | Helper script — auto-installs modules, creates deployable package, tests locally |
+| `deploy.ps1` | Deploy script — uploads ZIP to blob storage and creates the policy definition |
 | `README.md` | Step-by-step deployment instructions |
 
 ## End-to-End Workflow
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  1. Build in  │────▶│ 2. Download  │────▶│ 3. Run        │────▶│ 4. Upload to │
-│  the web app  │     │   .zip       │     │  package.ps1  │     │  blob storage│
+│  1. Build in  │────▶│ 2. Download  │────▶│ 3. Run        │────▶│ 4. Run       │
+│  the web app  │     │   .zip       │     │  package.ps1  │     │  deploy.ps1  │
 └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
                                                                        │
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐            │
-│  7. View      │◀────│ 6. MC agent  │◀────│ 5. Create &  │◀───────────┘
-│  compliance   │     │  evaluates   │     │  assign policy│
+│  7. View      │◀────│ 6. MC agent  │◀────│ 5. Assign    │◀───────────┘
+│  compliance   │     │  evaluates   │     │  from Portal │
 └──────────────┘     └──────────────┘     └──────────────┘
 ```
 
@@ -52,27 +53,22 @@ The downloaded bundle contains:
 ```powershell
 # 1. Build your config in the web app, download the ZIP
 
-# 2. Create the deployable package (on your workstation, NOT the target VM)
+# 2. Extract and create the deployable package (on your workstation, NOT the target VM)
 #    Use pwsh (PowerShell 7+), NOT powershell (Windows PowerShell 5.1)
 cd <extracted-folder>
-pwsh ./package.ps1   # Installs modules, creates .zip package, runs local test
+pwsh ./package.ps1   # Installs modules, creates output/<Name>.zip, runs local test
 
-# 3. Upload to Azure Blob Storage (requires Az module: Install-Module Az)
-$ctx = (Get-AzStorageAccount -ResourceGroupName 'myRG' -Name 'mystorage').Context
-Set-AzStorageBlobContent -Container 'guestconfiguration' -File '.\output\MyConfig.zip' -Context $ctx
-$uri = New-AzStorageBlobSASToken -Container 'guestconfiguration' -Blob 'MyConfig.zip' `
-  -Permission r -ExpiryTime (Get-Date).AddYears(3) -Context $ctx -FullUri
+# 3. Upload to Azure Blob Storage and create the policy definition
+#    (requires Az module: Install-Module Az)
+pwsh ./deploy.ps1    # Authenticates, uploads ZIP, creates policy definition
 
-# 4. Get the content hash
-$hash = (Get-FileHash '.\output\MyConfig.zip' -Algorithm SHA256).Hash
-
-# 5. Update policy.json with the URI and hash, then create the policy
-#    Replace {{contentUri}} and {{contentHash}} in policy.json
-New-AzPolicyDefinition -Name 'MyConfig' -Policy '.\policy.json' -Mode 'Indexed'
-
-# 6. Assign the policy to a scope
-$def = Get-AzPolicyDefinition -Name 'MyConfig'
-New-AzPolicyAssignment -Name 'MyConfig' -PolicyDefinition $def -Scope '/subscriptions/<sub-id>'
+# 4. Assign the policy from the Azure Portal
+#    Navigate to: Azure Portal → Policy → Definitions → search "MC-<Name>"
+#    Click Assign, select your scope, and save.
+#
+#    Or assign via PowerShell:
+#    $def = Get-AzPolicyDefinition -Name 'MC-<Name>'
+#    New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition $def -Scope '/subscriptions/<sub-id>'
 ```
 
 ## Supported Resources (29)

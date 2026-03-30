@@ -5,6 +5,7 @@ import { generateMetaconfigString, getMetaconfigFilename } from './metaconfigGen
 import { generatePs1 } from './ps1Generator';
 import { generatePolicyJsonString } from './policyGenerator';
 import { generatePackageScript } from './packageScriptGenerator';
+import { generateDeployScript } from './deployScriptGenerator';
 import { generateReadme } from './readmeGenerator';
 
 /** Generate a ZIP bundle with all artifacts at the root level */
@@ -26,6 +27,9 @@ export async function generateBundle(config: ConfigurationState): Promise<Blob> 
 
   // Package helper script
   zip.file('package.ps1', generatePackageScript(config));
+
+  // Deploy script (upload to storage + create policy definition)
+  zip.file('deploy.ps1', generateDeployScript(config));
 
   // README
   zip.file('README.md', generateReadme(config));

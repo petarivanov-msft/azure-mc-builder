@@ -25,6 +25,3 @@ dist-ssr
 
 .env
 *.pptx
-infra/terraform.tfvars
-infra/.terraform/
-infra/*.tfstate*

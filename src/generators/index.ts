@@ -3,5 +3,6 @@ export { generateMetaconfig, generateMetaconfigString, getMetaconfigFilename } f
 export { generatePs1 } from './ps1Generator';
 export { generatePolicyJson, generatePolicyJsonString } from './policyGenerator';
 export { generatePackageScript } from './packageScriptGenerator';
+export { generateDeployScript } from './deployScriptGenerator';
 export { generateReadme } from './readmeGenerator';
 export { generateBundle, computeContentHash, getGeneratedOutputs } from './bundleGenerator';
