@@ -55,6 +55,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# ─── Ensure $env:TEMP is set (Linux doesn't set it by default) ───────────────
+if (-not $env:TEMP) { $env:TEMP = [System.IO.Path]::GetTempPath() }
+
 # ─── Validate inputs ─────────────────────────────────────────────────────────
 
 if (-not $ConfigPath -and -not $PackagePath) {
@@ -277,6 +280,26 @@ if (-not (Test-Path $PackagePath)) {
 $packageFile = Get-Item $PackagePath
 if (-not $configName) { $configName = $packageFile.BaseName }
 $hash = (Get-FileHash -Path $PackagePath -Algorithm SHA256).Hash
+
+# ─── Auto-detect mode from sibling policy.json when using -PackagePath ────────
+if (-not $PSBoundParameters.ContainsKey('Mode') -and -not $ConfigPath) {
+    # Look for policy.json next to the ZIP or one directory up
+    $searchDirs = @(
+        (Split-Path $PackagePath -Parent),
+        (Split-Path (Split-Path $PackagePath -Parent) -Parent)
+    )
+    foreach ($dir in $searchDirs) {
+        $pjCheck = Join-Path $dir 'policy.json'
+        if (Test-Path $pjCheck) {
+            $pjRaw = Get-Content $pjCheck -Raw
+            if ($pjRaw -match 'deployIfNotExists') {
+                $Mode = 'AuditAndSet'
+                Write-Host "   Auto-detected mode from policy.json: $Mode" -ForegroundColor Gray
+            }
+            break
+        }
+    }
+}
 
 if (-not $ConfigPath) {
     Write-Host ''
