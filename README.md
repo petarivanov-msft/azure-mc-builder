@@ -71,24 +71,26 @@ pwsh ./deploy.ps1    # Authenticates, uploads ZIP, creates policy definition
 #    New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition $def -Scope '/subscriptions/<sub-id>'
 ```
 
-## Supported Resources (29)
+## Supported Resources (24 active + 5 blocked)
 
 ### Windows — PSDscResources v2.12.0.0
 
-| Resource | What It Checks |
-|----------|---------------|
-| Registry | Registry key values and data |
-| Service | Windows service state and startup type |
-| WindowsProcess | Running processes |
-| WindowsFeature | Installed Windows features/roles (Server SKU only) |
-| WindowsOptionalFeature | Optional Windows features |
-| Environment | Environment variables |
-| Script | Custom PowerShell compliance checks |
-| MsiPackage | Installed MSI packages |
-| WindowsPackageCab | Installed CAB packages |
-| Group | Local group membership |
-| User | Local user accounts |
-| Archive | ZIP/archive extraction state |
+| Resource | What It Checks | Status |
+|----------|---------------|--------|
+| Registry | Registry key values and data | ✅ |
+| Service | Windows service state and startup type | ✅ |
+| WindowsProcess | Running processes | ✅ |
+| Environment | Environment variables | ✅ |
+| Script | Custom PowerShell compliance checks | ✅ |
+| Group | Local group membership | ✅ |
+| User | Local user accounts | ✅ |
+| ~~WindowsFeature~~ | ~~Windows features/roles~~ | ⛔ Blocked |
+| ~~WindowsOptionalFeature~~ | ~~Optional Windows features~~ | ⛔ Blocked |
+| ~~MsiPackage~~ | ~~Installed MSI packages~~ | ⛔ Blocked |
+| ~~WindowsPackageCab~~ | ~~Installed CAB packages~~ | ⛔ Blocked |
+| ~~Archive~~ | ~~ZIP/archive extraction~~ | ⛔ Blocked |
+
+> **⛔ Blocked resources** are not supported by the Azure Guest Configuration agent sandbox. The builder validates this at build time and will show an error if you try to use them. These resources require system-level access that the GC agent's sandboxed DSC process cannot provide.
 
 ### Windows — SecurityPolicyDsc v2.10.0.0
 
@@ -138,15 +140,15 @@ The builder includes 9 ready-to-use templates:
 
 | Template | Platform | Mode | Resources |
 |----------|----------|------|-----------|
-| Windows Security Baseline | Windows | Audit | 14 (CIS-aligned) |
-| Windows Service Monitoring | Windows | Audit | 5 |
-| Windows Audit Policy Baseline | Windows | Audit | 8 |
-| Windows Network Security | Windows | Audit | 6 |
+| Windows Security Baseline (CIS) | Windows | Audit | 14 |
+| Windows Audit Policy | Windows | Audit | 8 |
+| Windows Network Security | Windows | Audit | 5 |
+| Windows Service Monitoring | Windows | Audit | 3 |
 | Linux SSH Hardening | Linux | Audit | 5 |
-| Linux File Permissions | Linux | Audit | 6 |
-| Linux Script-Based Audit | Linux | Audit | 5 (nxScript) |
-| Linux User Security | Linux | Audit | 4 |
-| Linux Sysctl Remediation | Linux | AuditAndSet | 5 (nxScript, remediates) |
+| Linux Script-Based Audit (nxScript) | Linux | Audit | 5 |
+| Linux User & Group Security | Linux | Audit | 6 |
+| Linux File Permissions | Linux | Audit | 4 |
+| Linux Sysctl Remediation (nxScript) | Linux | AuditAndSet | 5 |
 
 ## Configuration Modes
 
@@ -201,7 +203,7 @@ npm install
 npm run dev       # http://localhost:5173
 npm run build     # Production build → dist/
 npm run lint      # ESLint
-npm test          # Vitest (113 tests)
+npm test          # Vitest (445 tests)
 ```
 
 ### E2E Validation
@@ -209,14 +211,14 @@ npm test          # Vitest (113 tests)
 The CI pipeline validates every generated package against the real DSC engine:
 
 ```bash
-# Generate all 46 test configurations
+# Generate all 41 test configurations (5 blocked resources are skipped)
 npx tsx e2e/generate-test-configs.ts
 
 # Validate packages (requires pwsh + GuestConfiguration module)
 pwsh e2e/validate-packages.ps1
 ```
 
-**CI results:** 16/16 Linux packages + 30/30 Windows packages pass local DSC evaluation. These results have been verified against real Azure VMs running the Guest Configuration agent.
+**CI results:** 16/16 Linux packages + 25/25 Windows packages pass local DSC evaluation. These results have been verified against real Azure VMs running the Guest Configuration agent.
 
 ## License
 

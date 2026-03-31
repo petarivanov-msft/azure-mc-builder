@@ -112,7 +112,7 @@ Calls all six generators and produces a ZIP file (via JSZip) with all artifacts 
 
 ## Resource Schemas
 
-The builder knows about 29 DSC resources across 6 modules. Each schema (`src/schemas/`) defines:
+The builder knows about 29 DSC resources across 6 modules (24 active, 5 blocked in GC sandbox). Each schema (`src/schemas/`) defines:
 
 ```typescript
 interface ResourceSchema {
@@ -153,7 +153,7 @@ The store (`src/store/configStore.ts`) uses Zustand with:
 ## Build & CI
 
 - **Vite** — development server and production build
-- **Vitest** — 137 unit tests covering all 29 resource schemas, MOF generation, policy generation, escaping edge cases
+- **Vitest** — 445 unit tests covering all resource schemas, MOF generation, policy generation, validation, escaping edge cases, and GC sandbox restrictions
 - **E2E validation** — `e2e/generate-test-configs.ts` creates 46 test configurations, `e2e/validate-packages.ps1` compiles them with `New-GuestConfigurationPackage` and runs local compliance tests
 - **GitHub Actions** — CI runs lint + test on every push; Pages workflow deploys the built site
 
