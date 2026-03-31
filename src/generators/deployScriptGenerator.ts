@@ -220,8 +220,8 @@ Write-Host ''
 Write-Host '  Policy definition created. Assign it from Azure Portal.' -ForegroundColor Green
 Write-Host ''
 Write-Host '  Or assign via PowerShell:'
-Write-Host "     \$def = Get-AzPolicyDefinition -Name '$policyName'" -ForegroundColor Gray
-Write-Host "     New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition \$def -Scope '/subscriptions/$subId'" -ForegroundColor Gray
+Write-Host "     $def = Get-AzPolicyDefinition -Name '$policyName'" -ForegroundColor Gray
+Write-Host "     New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition $def -Scope '/subscriptions/$subId'" -ForegroundColor Gray
 Write-Host ''
 `;
 }

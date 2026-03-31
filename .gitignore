@@ -25,3 +25,7 @@ dist-ssr
 
 .env
 *.pptx
+
+# Debug/one-off scripts
+fix-*.ts
+generate-win-*.ts
