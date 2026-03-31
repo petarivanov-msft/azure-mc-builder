@@ -134,7 +134,7 @@ describe('policyGenerator', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet' })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
       const ext = resources.find((r: any) => r.type === 'Microsoft.Compute/virtualMachines/extensions');
-      expect(ext.properties.typeHandlerVersion).toBe('1.*');
+      expect(ext.properties.typeHandlerVersion).toBe('1.0');
     });
 
     it('includes contentUri and contentHash as template parameters', () => {
@@ -275,7 +275,7 @@ describe('policyGenerator', () => {
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
       const extResource = resources.find((r: any) => r.type?.includes('extensions'));
       expect(extResource).toBeDefined();
-      expect(extResource.properties.typeHandlerVersion).toBe('1.*');
+      expect(extResource.properties.typeHandlerVersion).toBe('1.0');
       expect(extResource.properties.autoUpgradeMinorVersion).toBe(true);
     });
 

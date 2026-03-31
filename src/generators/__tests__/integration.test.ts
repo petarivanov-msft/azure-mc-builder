@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { allSchemas, schemasByName } from '../../schemas';
 import { templates } from '../../templates';
 import { ConfigurationState, ResourceInstance } from '../../types';
-import { generateMofContent } from '../mofGenerator';
+import { generateMofContent, GC_UNSUPPORTED_CLASSES } from '../mofGenerator';
 import { generatePs1 } from '../ps1Generator';
 import { generatePolicyJsonString } from '../policyGenerator';
 import { generateMetaconfigString } from '../metaconfigGenerator';
@@ -100,7 +100,19 @@ function runAllGenerators(config: ConfigurationState) {
 // ─── Schema tests ────────────────────────────────────────────────────────────
 
 describe('Every schema through full pipeline', () => {
-  for (const schema of allSchemas) {
+  const blockedSchemas = allSchemas.filter(s => GC_UNSUPPORTED_CLASSES.has(s.mofClassName));
+  const supportedSchemas = allSchemas.filter(s => !GC_UNSUPPORTED_CLASSES.has(s.mofClassName));
+
+  describe('GC-unsupported resources are blocked', () => {
+    for (const schema of blockedSchemas) {
+      it(`${schema.resourceName} throws validation error`, () => {
+        const config = buildSingleResourceConfig(schema.resourceName);
+        expect(() => generateMofContent(config)).toThrow('NOT supported in the Azure Guest Configuration agent sandbox');
+      });
+    }
+  });
+
+  for (const schema of supportedSchemas) {
     describe(`${schema.resourceName} (${schema.platform})`, () => {
       const config = buildSingleResourceConfig(schema.resourceName);
 
@@ -161,8 +173,10 @@ describe('Every schema through full pipeline', () => {
 describe('AuditAndSet mode generates DINE policy', () => {
   // Only test resources that support remediation
   const auditAndSetSchemas = allSchemas.filter(s =>
+    !GC_UNSUPPORTED_CLASSES.has(s.mofClassName) && (
     // Linux nxScript + any Windows resource can be AuditAndSet
     s.platform === 'Linux' ? s.resourceName === 'nxScript' : true
+    )
   );
 
   for (const schema of auditAndSetSchemas.slice(0, 5)) {
@@ -295,7 +309,7 @@ describe('Cross-cutting validation', () => {
 
   it('config with 20 resources generates without errors', () => {
     // Build a config with many Windows resources
-    const windowsSchemas = allSchemas.filter(s => s.platform === 'Windows');
+    const windowsSchemas = allSchemas.filter(s => s.platform === 'Windows' && !GC_UNSUPPORTED_CLASSES.has(s.mofClassName));
     const resources: ResourceInstance[] = windowsSchemas.slice(0, 20).map((schema, i) => {
       const properties: Record<string, unknown> = {};
       for (const prop of schema.properties) {

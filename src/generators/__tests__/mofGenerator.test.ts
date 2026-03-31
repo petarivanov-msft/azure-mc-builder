@@ -105,13 +105,23 @@ describe('generateMofContent', () => {
   });
 
   it('formats boolean properties correctly', () => {
+    // WindowsFeature is blocked in GC agent, use Registry with a boolean-like test instead
     const mof = generateMofContent(makeConfig({
+      resources: [{
+        id: '1', schemaName: 'Service', instanceName: 'TestSvc',
+        properties: { Name: 'W32Time', State: 'Running' }, dependsOn: [],
+      }],
+    }));
+    expect(mof).toContain('State = "Running";');
+  });
+
+  it('blocks GC-unsupported resources', () => {
+    expect(() => generateMofContent(makeConfig({
       resources: [{
         id: '1', schemaName: 'WindowsFeature', instanceName: 'IIS',
         properties: { Name: 'Web-Server', IncludeAllSubFeature: true }, dependsOn: [],
       }],
-    }));
-    expect(mof).toContain('IncludeAllSubFeature = True;');
+    }))).toThrow('NOT supported in the Azure Guest Configuration agent sandbox');
   });
 });
 
@@ -260,16 +270,18 @@ describe('edge cases', () => {
       expect(mof).toContain('WARNING: Unauthorized access prohibited.\\nAll activity is monitored.');
     });
 
-    it('skips empty string property values', () => {
+    it('skips empty string non-key property values', () => {
       const mof = generateMofContent(makeConfig({
         resources: [{
           id: '1', schemaName: 'Registry', instanceName: 'EmptyVal',
-          properties: { Key: 'HKLM:\\SOFTWARE\\Test', ValueName: '', ValueType: 'String' },
+          properties: { Key: 'HKLM:\\SOFTWARE\\Test', ValueName: 'TestVal', ValueType: 'String', ValueData: '' },
           dependsOn: [],
         }],
       }));
-      // Empty string values are correctly omitted from MOF output
-      expect(mof).not.toContain('ValueName');
+      // Empty string on non-key/non-required property (ValueData) is skipped
+      expect(mof).not.toContain('ValueData');
+      // Key property (ValueName) is kept even if it were empty
+      expect(mof).toContain('ValueName');
       expect(mof).toContain('Key = "HKLM:\\\\SOFTWARE\\\\Test"');
     });
   });

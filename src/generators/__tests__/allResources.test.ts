@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateMofContent } from '../mofGenerator';
+import { generateMofContent, GC_UNSUPPORTED_CLASSES } from '../mofGenerator';
 import { generatePs1 } from '../ps1Generator';
 import { generatePackageScript } from '../packageScriptGenerator';
 import { allSchemas, schemasByName } from '../../schemas';
@@ -145,7 +145,8 @@ describe('Schema consistency checks', () => {
 
 // ─── Windows Resources — MOF Generation ──────────────────
 
-const windowsSchemas = allSchemas.filter(s => s.platform === 'Windows');
+const windowsSchemas = allSchemas.filter(s => s.platform === 'Windows' && !GC_UNSUPPORTED_CLASSES.has(s.mofClassName));
+const blockedSchemas = allSchemas.filter(s => GC_UNSUPPORTED_CLASSES.has(s.mofClassName));
 const linuxSchemas = allSchemas.filter(s => s.platform === 'Linux');
 
 describe('MOF generation — all Windows resources', () => {
@@ -170,6 +171,16 @@ describe('MOF generation — all Windows resources', () => {
           expect(mof, `Missing required property ${p.name}`).toContain(p.name);
         }
       }
+    });
+  }
+});
+
+describe('GC-unsupported Windows resources are blocked', () => {
+  for (const schema of blockedSchemas) {
+    it(`${schema.resourceName} throws validation error`, () => {
+      const instance = buildTestInstance(schema.resourceName, `Test${schema.resourceName}`);
+      const config = makeConfig('Windows', [instance]);
+      expect(() => generateMofContent(config)).toThrow('NOT supported in the Azure Guest Configuration agent sandbox');
     });
   }
 });
