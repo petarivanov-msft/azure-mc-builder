@@ -60,6 +60,7 @@ export const GuideDialog: React.FC<Props> = ({ open, onClose }) => (
                 ['<Name>.ps1', 'PowerShell DSC script (human-readable version)'],
                 ['policy.json', 'Azure Policy definition template'],
                 ['package.ps1', 'Helper script that builds the deployable package'],
+                ['deploy.ps1', 'Deploy script — uploads to blob storage and creates the policy definition'],
                 ['metaconfig.json', 'Package metadata (reference copy — package.ps1 embeds this automatically)'],
                 ['README.md', 'Full deployment instructions'],
               ].map(([file, desc], i) => (
@@ -79,39 +80,36 @@ pwsh ./package.ps1`}</pre>
           <p style={p}>The script automatically installs the <code>GuestConfiguration</code> module and all required DSC resource modules (detected from the MOF), bundles them into a deployable <code>.zip</code> via <code>New-GuestConfigurationPackage</code>, and runs a local compliance test.</p>
 
           {/* Step 4 */}
-          <h2 style={h2}>Step 4 — Upload to Azure Blob Storage</h2>
-          <p style={p}>The container can stay private — the SAS token grants read access for the MC agent.</p>
-          <pre style={code}>{`# Create storage account and container (or use existing)
-New-AzStorageAccount -ResourceGroupName 'myRG' -Name 'mcpackages' -Location 'uksouth' -SkuName 'Standard_LRS'
+          <h2 style={h2}>Step 4 — Deploy to Azure</h2>
+          <p style={p}>The <code>deploy.ps1</code> script handles everything — uploads the package to Azure Blob Storage and creates the Azure Policy definition. You need the <strong>Az PowerShell module</strong> (<code>Install-Module Az -Scope CurrentUser</code>).</p>
+          <pre style={code}>{`# Run the deploy script (authenticates, uploads, creates policy)
+pwsh ./deploy.ps1`}</pre>
+          <p style={p}>The script will:</p>
+          <ol>
+            <li style={li}>Connect to your Azure account (if not already signed in)</li>
+            <li style={li}>Create or use an existing storage account and container</li>
+            <li style={li}>Upload the package ZIP with a SAS token</li>
+            <li style={li}>Create the Azure Policy definition with the correct content URI and hash</li>
+          </ol>
+          <p style={p}>After deployment, assign the policy from the Azure Portal or PowerShell.</p>
+
+          <details style={{ margin: '8px 0 16px', fontSize: '13px' }}>
+            <summary style={{ cursor: 'pointer', color: '#0078d4', fontWeight: 600 }}>Manual deployment (alternative)</summary>
+            <p style={p}>If you prefer to deploy manually instead of using <code>deploy.ps1</code>:</p>
+            <pre style={code}>{`# Upload to blob storage
 $ctx = (Get-AzStorageAccount -ResourceGroupName 'myRG' -Name 'mcpackages').Context
-New-AzStorageContainer -Name 'guestconfig' -Context $ctx
+Set-AzStorageBlobContent -Container 'guestconfig' -File './output/MyConfig.zip' -Blob 'MyConfig.zip' -Context $ctx
 
-# Upload the package
-Set-AzStorageBlobContent -Container 'guestconfig' -File '.\\output\\MyConfig.zip' -Blob 'MyConfig.zip' -Context $ctx
-
-# Get a download URL (SAS token, valid 3 years)
+# Generate SAS URL
 $uri = New-AzStorageBlobSASToken -Container 'guestconfig' -Blob 'MyConfig.zip' \\
-  -Permission r -ExpiryTime (Get-Date).AddYears(3) -Context $ctx -FullUri`}</pre>
+  -Permission r -ExpiryTime (Get-Date).AddYears(3) -Context $ctx -FullUri
+
+# Create policy definition (replace placeholders in policy.json first)
+New-AzPolicyDefinition -Name 'MC-MyConfig' -Policy './policy.json' -Mode 'Indexed'`}</pre>
+          </details>
 
           {/* Step 5 */}
-          <h2 style={h2}>Step 5 — Deploy the Azure Policy</h2>
-          <p style={p}>You need the <strong>Az PowerShell module</strong> (<code>Install-Module Az -Scope CurrentUser</code>) and must be signed in (<code>Connect-AzAccount</code>).</p>
-          <ol>
-            <li style={li}>Open the <code>policy.json</code> from your ZIP</li>
-            <li style={li}>Replace <code>{'{{contentUri}}'}</code> with the blob SAS URL from Step 4</li>
-            <li style={li}>Replace <code>{'{{contentHash}}'}</code> with the SHA256 hash (printed by <code>package.ps1</code>)</li>
-            <li style={li}>Create and assign the policy:</li>
-          </ol>
-          <pre style={code}>{`# Create the policy definition
-New-AzPolicyDefinition -Name 'MyConfig' -Policy './policy.json' -Mode 'Indexed'
-
-# Assign to a resource group (or subscription/management group)
-New-AzPolicyAssignment -Name 'MyConfig' \\
-  -PolicyDefinition (Get-AzPolicyDefinition -Name 'MyConfig') \\
-  -Scope '/subscriptions/<sub-id>/resourceGroups/<rg-name>'`}</pre>
-
-          {/* Step 6 */}
-          <h2 style={h2}>Step 6 — VM Prerequisites</h2>
+          <h2 style={h2}>Step 5 — VM Prerequisites</h2>
           <p style={p}>Target VMs need the <strong>Guest Configuration extension</strong> and a <strong>system-assigned managed identity</strong>. Assign this built-in initiative at your subscription level:</p>
           <div style={{ background: '#f0f6ff', border: '1px solid #b3d4ff', borderRadius: '6px', padding: '12px 14px', margin: '8px 0 12px', fontSize: '12.5px' }}>
             <strong>Deploy prerequisites to enable Guest Configuration policies on virtual machines</strong><br />
@@ -181,7 +179,7 @@ New-AzPolicyAssignment -Name 'MyConfig' \\
             ['Can I use this for both Windows and Linux?',
              'Yes. Pick your platform when building the configuration. Windows uses PSDscResources and community modules. Linux uses nxtools.'],
             ['What DSC modules are included?',
-             'PSDscResources (built-in Windows), SecurityPolicyDsc, AuditPolicyDsc, NetworkingDsc, ComputerManagementDsc, and nxtools (Linux). 29 resources total.'],
+             'PSDscResources (built-in Windows), SecurityPolicyDsc, AuditPolicyDsc, NetworkingDsc, ComputerManagementDsc, and nxtools (Linux). 24 active resources across 6 modules. 5 additional PSDscResources types (Archive, MsiPackage, WindowsFeature, WindowsOptionalFeature, WindowsPackageCab) are blocked because they require system access the GC agent sandbox cannot provide.'],
             ['Can I add my own custom DSC resources?',
              'Not yet — custom resource import is on the roadmap. For now you can manually edit the generated .ps1 file to add resources the builder doesn\'t cover.'],
             ['Do VMs need internet access?',
