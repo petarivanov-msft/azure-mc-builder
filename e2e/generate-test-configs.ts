@@ -10,7 +10,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { generateMofContent } from '../src/generators/mofGenerator';
+import { generateMofContent, GC_UNSUPPORTED_CLASSES } from '../src/generators/mofGenerator';
 import { generatePackageScript } from '../src/generators/packageScriptGenerator';
 import { generateMetaconfigString } from '../src/generators/metaconfigGenerator';
 import { templates } from '../src/templates/index';
@@ -90,9 +90,13 @@ for (const tmpl of templates) {
   writeConfig(tmpl.config.configName, tmpl.config);
 }
 
-// 2. Single-resource configs for EVERY schema
+// 2. Single-resource configs for EVERY schema (skip unsupported)
 console.log('\n📋 Single-resource configs (every schema):');
 for (const schema of allSchemas) {
+  if (GC_UNSUPPORTED_CLASSES.has(schema.mofClassName)) {
+    console.log(`  ⏭️  Skipping ${schema.resourceName} (unsupported in GC)`);
+    continue;
+  }
   const configName = `Single_${schema.resourceName}`;
   const instance = buildInstance(schema.resourceName, `Test${schema.resourceName}`);
   const config: ConfigurationState = {
@@ -241,16 +245,16 @@ console.log('\n📋 Edge case configs:');
   writeConfig('EdgeCase_SpecialChars', config);
 }
 
-// Maximum resources (one of each Windows type)
+// Maximum resources (all supported Windows types)
 {
-  const windowsSchemas = allSchemas.filter(s => s.platform === 'Windows');
+  const windowsSchemas = allSchemas.filter(s => s.platform === 'Windows' && !GC_UNSUPPORTED_CLASSES.has(s.mofClassName));
   const resources = windowsSchemas.map(s => buildInstance(s.resourceName, `Max${s.resourceName}`));
   const config: ConfigurationState = {
     configName: 'EdgeCase_MaxWindowsResources',
     platform: 'Windows',
     mode: 'Audit',
     version: '1.0.0',
-    description: `All ${windowsSchemas.length} Windows resources in one config`,
+    description: `All ${windowsSchemas.length} supported Windows resources in one config`,
     resources,
   };
   writeConfig('EdgeCase_MaxWindowsResources', config);
