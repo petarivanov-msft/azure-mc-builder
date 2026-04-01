@@ -29,3 +29,4 @@ dist-ssr
 # Debug/one-off scripts
 fix-*.ts
 generate-win-*.ts
+*.zip
