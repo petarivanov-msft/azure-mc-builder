@@ -12,34 +12,6 @@ function sanitiseIdentifier(value: string): string {
 // so we build the string via concatenation instead.
 const DLR = '`$'; // PS escaped dollar
 
-function remediationBlock(safeName: string): string {
-  return `
-# ─── AuditAndSet: Remediation Instructions ───────────────────────────────────
-
-Write-Host '╔══════════════════════════════════════════════════════════════╗' -ForegroundColor Yellow
-Write-Host '║  IMPORTANT: AuditAndSet Mode — Remediation Task Required     ║' -ForegroundColor Yellow
-Write-Host '╚══════════════════════════════════════════════════════════════╝' -ForegroundColor Yellow
-Write-Host ''
-Write-Host '  This config uses AuditAndSet (remediation) mode.' -ForegroundColor Yellow
-Write-Host '  Azure DINE policies have a two-stage deployment:' -ForegroundColor Yellow
-Write-Host ''
-Write-Host '  Stage 1: Policy assignment evaluates compliance (Audit only)' -ForegroundColor Gray
-Write-Host '  Stage 2: Remediation task triggers the actual ApplyAndAutoCorrect' -ForegroundColor Gray
-Write-Host ''
-Write-Host '  After assigning the policy, you MUST create a remediation task:' -ForegroundColor Yellow
-Write-Host ''
-Write-Host '  Option A — Azure Portal:' -ForegroundColor Cyan
-Write-Host '    1. Go to Policy > Assignments > select this assignment' -ForegroundColor Gray
-Write-Host '    2. Click "Create Remediation Task"' -ForegroundColor Gray
-Write-Host '    3. Wait for the task to complete (~15 min)' -ForegroundColor Gray
-Write-Host ''
-Write-Host '  Option B — PowerShell:' -ForegroundColor Cyan
-Write-Host "    ${DLR}assignment = Get-AzPolicyAssignment | Where-Object { ${DLR}_.PolicyDefinitionId -like '*$policyName*' }" -ForegroundColor Gray
-Write-Host "    Start-AzPolicyRemediation -Name '$configName-remediation' -PolicyAssignmentId ${DLR}assignment.PolicyAssignmentId" -ForegroundColor Gray
-Write-Host ''
-`;
-}
-
 /**
  * Generate a deploy.ps1 script for the config bundle.
  * This script:
