@@ -50,6 +50,7 @@ export function generateDeployScript(config: ConfigurationState): string {
 #   New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition $def -Scope '/subscriptions/<sub-id>'
 
 #Requires -Version 7.0
+# Requires Az.Accounts, Az.Resources, Az.Storage
 
 [CmdletBinding()]
 param(
