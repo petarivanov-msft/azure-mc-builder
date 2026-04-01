@@ -94,13 +94,11 @@ describe('policyGenerator', () => {
       expect(arcAssignment.condition).toContain('Microsoft.HybridCompute/machines');
     });
 
-    it('deploys system-assigned managed identity on VM only (not Arc)', () => {
+    it('does not deploy system-assigned managed identity (handled by prerequisite initiative)', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet' })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
       const vmResource = resources.find((r: any) => r.type === 'Microsoft.Compute/virtualMachines');
-      expect(vmResource).toBeDefined();
-      expect(vmResource.identity.type).toBe('SystemAssigned');
-      expect(vmResource.condition).toContain('Microsoft.Compute/virtualMachines');
+      expect(vmResource).toBeUndefined();
     });
 
     it('passes resource type as template parameter', () => {
@@ -110,31 +108,11 @@ describe('policyGenerator', () => {
       expect(params.type.value).toBe("[field('type')]");
     });
 
-    it('deploys Windows MC extension for Windows platform (VM only)', () => {
+    it('does not deploy GC extension (handled by prerequisite initiative)', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet', platform: 'Windows' })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
       const ext = resources.find((r: any) => r.type === 'Microsoft.Compute/virtualMachines/extensions');
-      expect(ext).toBeDefined();
-      expect(ext.properties.type).toBe('ConfigurationforWindows');
-      expect(ext.name).toContain('AzurePolicyforWindows');
-      expect(ext.condition).toContain('Microsoft.Compute/virtualMachines');
-    });
-
-    it('deploys Linux MC extension for Linux platform (VM only)', () => {
-      const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet', platform: 'Linux' })) as any;
-      const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
-      const ext = resources.find((r: any) => r.type === 'Microsoft.Compute/virtualMachines/extensions');
-      expect(ext).toBeDefined();
-      expect(ext.properties.type).toBe('ConfigurationforLinux');
-      expect(ext.name).toContain('AzurePolicyforLinux');
-      expect(ext.condition).toContain('Microsoft.Compute/virtualMachines');
-    });
-
-    it('uses typeHandlerVersion 1.0 for auto-upgrade compatibility', () => {
-      const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet' })) as any;
-      const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
-      const ext = resources.find((r: any) => r.type === 'Microsoft.Compute/virtualMachines/extensions');
-      expect(ext.properties.typeHandlerVersion).toBe('1.0');
+      expect(ext).toBeUndefined();
     });
 
     it('includes contentUri and contentHash as template parameters', () => {
@@ -267,16 +245,16 @@ describe('policyGenerator', () => {
       }
     });
 
-    it('DINE policy includes GC extension with typeHandlerVersion 1.0', () => {
+    it('DINE policy only contains GC assignment resources (no extension)', () => {
       const policy = generatePolicyJson(makeConfig({
         mode: 'AuditAndSet',
         resources: [{ id: '1', schemaName: 'Registry', instanceName: 'R1', properties: { Key: 'HKLM:\\Test', ValueName: 'V' }, dependsOn: [] }],
       })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
       const extResource = resources.find((r: any) => r.type?.includes('extensions'));
-      expect(extResource).toBeDefined();
-      expect(extResource.properties.typeHandlerVersion).toBe('1.0');
-      expect(extResource.properties.autoUpgradeMinorVersion).toBe(true);
+      expect(extResource).toBeUndefined();
+      // Should only have GC assignment resources (Arc + VM)
+      expect(resources.length).toBe(2);
     });
 
     it('Audit policy targets correct OS for Linux', () => {

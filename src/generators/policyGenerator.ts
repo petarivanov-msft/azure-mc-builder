@@ -119,8 +119,6 @@ function buildExistenceCondition(configParams: Array<{ name: string; value: stri
 /** Generate DeployIfNotExists policy 'then' block for AuditAndSet (remediation) mode */
 function generateDeployThen(config: ConfigurationState): object {
   const isWindows = config.platform === 'Windows';
-  const extensionType = isWindows ? 'ConfigurationforWindows' : 'ConfigurationforLinux';
-  const extensionName = isWindows ? 'AzurePolicyforWindows' : 'AzurePolicyforLinux';
   const assignmentType = 'ApplyAndAutoCorrect';
   const configParams = buildConfigurationParameters(config);
 
@@ -203,34 +201,6 @@ function generateDeployThen(config: ConfigurationState): object {
                     configurationParameter: configParams.length > 0 ? configParams : [],
                   },
                 },
-              },
-              // Azure VM — system-assigned managed identity (VM only)
-              {
-                apiVersion: '2024-03-01',
-                type: 'Microsoft.Compute/virtualMachines',
-                identity: {
-                  type: 'SystemAssigned',
-                },
-                name: "[parameters('vmName')]",
-                location: "[parameters('location')]",
-                condition: "[equals(toLower(parameters('type')), toLower('Microsoft.Compute/virtualMachines'))]",
-              },
-              // Azure VM — GC extension (VM only, Arc has it built-in)
-              {
-                apiVersion: '2024-03-01',
-                name: `[concat(parameters('vmName'), '/${extensionName}')]`,
-                type: 'Microsoft.Compute/virtualMachines/extensions',
-                location: "[parameters('location')]",
-                condition: "[equals(toLower(parameters('type')), toLower('Microsoft.Compute/virtualMachines'))]",
-                properties: {
-                  publisher: 'Microsoft.GuestConfiguration',
-                  type: extensionType,
-                  typeHandlerVersion: '1.0',
-                  autoUpgradeMinorVersion: true,
-                },
-                dependsOn: [
-                  "[concat('Microsoft.Compute/virtualMachines/',parameters('vmName'),'/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/',parameters('configurationName'))]",
-                ],
               },
             ],
           },
