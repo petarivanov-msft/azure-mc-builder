@@ -46,7 +46,7 @@ export function generatePackageScript(config: ConfigurationState): string {
 #   1. Detects required DSC modules from the MOF file
 #   2. Installs them automatically (GuestConfiguration + all DSC resource modules)
 #   3. Bundles the MOF + modules into a deployable .zip via New-GuestConfigurationPackage
-#   4. Runs a local compliance test
+#   4. Prints next steps
 
 #Requires -Version 7.0
 $ErrorActionPreference = 'Stop'
@@ -183,40 +183,6 @@ Write-Host ''
 Write-Host '[OK] Package created successfully!' -ForegroundColor Green
 Write-Host "   Path: $($package.Path)"
 Write-Host "   Hash: $hash"
-Write-Host ''
-
-# ─── Local Compliance Test ───────────────────────────────────────────────────
-Write-Host '[TEST] Running local compliance test...' -ForegroundColor Cyan
-
-# On Windows, the GC worker writes to C:\\ProgramData\\GuestConfig which requires elevation
-$runningOnWindows = $PSVersionTable.PSVersion -and ($IsWindows -or $env:OS -eq 'Windows_NT')
-$isElevated = if ($runningOnWindows) {
-    ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-} else { $true }
-
-if (-not $isElevated) {
-    Write-Host '   [WARN] Skipping — local compliance test requires Administrator privileges on Windows.' -ForegroundColor Yellow
-    Write-Host '   Run this script in an elevated PowerShell to test locally, or deploy directly to Azure.' -ForegroundColor Gray
-} else {
-    try {
-        $testCmd = if (Get-Command 'Test-GuestConfigurationPackage' -ErrorAction SilentlyContinue) {
-            'Test-GuestConfigurationPackage'
-        } else {
-            'Get-GuestConfigurationPackageComplianceStatus'
-        }
-        $result = & $testCmd -Path $package.Path
-        Write-Host "   Status: $($result.complianceStatus)" -ForegroundColor $(if ($result.complianceStatus -eq $true -or $result.complianceStatus -eq 'Compliant') { 'Green' } else { 'Yellow' })
-        if ($result.resources) {
-            foreach ($r in $result.resources) {
-                $icon = if ($r.complianceStatus -eq $true -or $r.complianceStatus -eq 'True' -or $r.complianceStatus -eq 'Compliant') { '[OK]' } else { '[FAIL]' }
-                Write-Host "   $icon $($r.properties.ConfigurationName) — $($r.complianceStatus)"
-            }
-        }
-    } catch {
-        Write-Host "   [WARN] Local test failed: $($_.Exception.Message)" -ForegroundColor Yellow
-        Write-Host '   This does not affect the package — deploy to Azure to validate.' -ForegroundColor Gray
-    }
-}
 Write-Host ''
 
 # ─── Next Steps ──────────────────────────────────────────────────────────────

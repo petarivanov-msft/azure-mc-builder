@@ -537,7 +537,6 @@ describe('Package script generation', () => {
     expect(script).toContain('Install-Module -Name GuestConfiguration');
     expect(script).toContain("'PSDscResources' = '2.12.0.0'");
     expect(script).toContain('New-GuestConfigurationPackage');
-    expect(script).toContain('Test-GuestConfigurationPackage');
     expect(script).toContain('$mofPath');
     expect(script).toContain('ModuleName');  // MOF parsing
   });
