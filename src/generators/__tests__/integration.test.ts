@@ -286,8 +286,8 @@ describe('Cross-cutting validation', () => {
     }
   });
 
-  it('schema count matches expected (29)', () => {
-    expect(allSchemas.length).toBe(29);
+  it('schema count matches expected (28)', () => {
+    expect(allSchemas.length).toBe(28);
   });
 
   it('template count matches expected (9)', () => {

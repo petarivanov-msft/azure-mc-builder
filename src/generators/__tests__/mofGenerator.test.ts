@@ -118,8 +118,8 @@ describe('generateMofContent', () => {
   it('blocks GC-unsupported resources', () => {
     expect(() => generateMofContent(makeConfig({
       resources: [{
-        id: '1', schemaName: 'WindowsFeature', instanceName: 'IIS',
-        properties: { Name: 'Web-Server', IncludeAllSubFeature: true }, dependsOn: [],
+        id: '1', schemaName: 'WindowsOptionalFeature', instanceName: 'TestFeature',
+        properties: { Name: 'TelnetClient', Ensure: 'Present' }, dependsOn: [],
       }],
     }))).toThrow('NOT supported in the Azure Guest Configuration agent sandbox');
   });

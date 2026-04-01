@@ -447,7 +447,6 @@ export const useConfigStore = create<AppState>((set, get) => ({
       }
 
       // Platform-specific hints (shown as info icon on the resource, not as validation warnings)
-      // WindowsFeature: only works on Server SKUs — noted in the schema description instead
       // nxPackage: dpkg-based — noted in the schema description instead
 
       // nxFile: Mode is technically optional in schema but the nxtools DSC resource

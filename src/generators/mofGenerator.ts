@@ -138,7 +138,6 @@ function generateOmiDocument(configName: string): string {
 
 // Resources known to be unsupported in the GC agent sandbox
 export const GC_UNSUPPORTED_CLASSES = new Set([
-  'MSFT_RoleResource',           // WindowsFeature — needs Server Manager
   'MSFT_WindowsOptionalFeature', // needs DISM
   'MSFT_ArchiveResource',        // needs Expand-Archive
   'MSFT_MsiPackage',             // needs MSI subsystem

@@ -630,16 +630,16 @@ describe('Cross-resource dependencies', () => {
 // ─── Resource count sanity check ────────────────────────
 
 describe('Resource count', () => {
-  it('has 21 Windows resources', () => {
-    expect(allSchemas.filter(s => s.platform === 'Windows').length).toBe(21);
+  it('has 20 Windows resources', () => {
+    expect(allSchemas.filter(s => s.platform === 'Windows').length).toBe(20);
   });
 
   it('has 8 Linux resources', () => {
     expect(allSchemas.filter(s => s.platform === 'Linux').length).toBe(8);
   });
 
-  it('has 29 total resources', () => {
-    expect(allSchemas.length).toBe(29);
+  it('has 28 total resources', () => {
+    expect(allSchemas.length).toBe(28);
   });
 });
 

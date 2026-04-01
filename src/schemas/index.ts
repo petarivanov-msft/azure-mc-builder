@@ -9,7 +9,6 @@ import { registrySchema } from './windows/registry';
 import { scriptSchema } from './windows/script';
 import { serviceSchema } from './windows/service';
 import { userSchema } from './windows/user';
-import { windowsFeatureSchema } from './windows/windowsFeature';
 import { windowsOptionalFeatureSchema } from './windows/windowsOptionalFeature';
 import { windowsPackageCabSchema } from './windows/windowsPackageCab';
 import { windowsProcessSchema } from './windows/windowsProcess';
@@ -45,7 +44,7 @@ export const allSchemas: ResourceSchema[] = [
   // Windows — Built-in (PSDscResources)
   archiveSchema, environmentSchema, groupSchema, msiPackageSchema,
   registrySchema, scriptSchema, serviceSchema, userSchema,
-  windowsFeatureSchema, windowsOptionalFeatureSchema,
+  windowsOptionalFeatureSchema,
   windowsPackageCabSchema, windowsProcessSchema,
   // Windows — SecurityPolicyDsc
   accountPolicySchema, userRightsAssignmentSchema, securityOptionSchema,
@@ -98,7 +97,7 @@ export {
   // Windows — Built-in
   archiveSchema, environmentSchema, groupSchema, msiPackageSchema,
   registrySchema, scriptSchema, serviceSchema, userSchema,
-  windowsFeatureSchema, windowsOptionalFeatureSchema,
+  windowsOptionalFeatureSchema,
   windowsPackageCabSchema, windowsProcessSchema,
   // Windows — SecurityPolicyDsc
   accountPolicySchema, userRightsAssignmentSchema, securityOptionSchema,
