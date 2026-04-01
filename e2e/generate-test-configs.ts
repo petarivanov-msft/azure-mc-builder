@@ -143,7 +143,7 @@ console.log('\n📋 Multi-module configs:');
     buildInstance('nxUser', 'TestUser', { UserName: 'testuser', Ensure: 'Present' }),
     buildInstance('nxPackage', 'OpenSSH', { Name: 'openssh-server', PackageManager: 'apt', Ensure: 'Present' }),
     buildInstance('nxService', 'SshService', { Name: 'sshd', Controller: 'systemd', Enabled: true, State: 'Running' }),
-    buildInstance('nxFileContentReplace', 'PassMaxDays', { FilePath: '/etc/login.defs', EnsureExpectedContent: 'PASS_MAX_DAYS\\s+90' }),
+    buildInstance('nxFileContentReplace', 'PassMaxDays', { FilePath: '/etc/login.defs', EnsureExpectedPattern: 'PASS_MAX_DAYS\\s+90' }),
   ];
   const config: ConfigurationState = {
     configName: 'MultiResource_AllLinux',
