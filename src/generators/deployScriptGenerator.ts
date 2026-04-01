@@ -50,7 +50,6 @@ export function generateDeployScript(config: ConfigurationState): string {
 #   New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition $def -Scope '/subscriptions/<sub-id>'
 
 #Requires -Version 7.0
-#Requires -Modules Az.Accounts, Az.Storage, Az.Resources
 
 [CmdletBinding()]
 param(
@@ -64,6 +63,19 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Fail($msg) {
+    Write-Error $msg
+    exit 1
+}
+
+# ─── Az module checks ───────────────────────────────────────────────────────
+$requiredModules = @('Az.Accounts', 'Az.Resources', 'Az.Storage')
+foreach ($m in $requiredModules) {
+    if (-not (Get-Module -ListAvailable -Name $m)) {
+        Fail "Required module '$m' is not installed. Run: Install-Module $($requiredModules -join ', ') -Scope CurrentUser"
+    }
+}
 
 # ─── Ensure $env:TEMP is set (Linux doesn't set it by default) ───────────────
 if (-not $env:TEMP) { $env:TEMP = [System.IO.Path]::GetTempPath() }
@@ -115,15 +127,28 @@ if (-not $SkipLogin) {
     $context = Get-AzContext -ErrorAction SilentlyContinue
     if (-not $context) {
         Write-Host '[AUTH] Connecting to Azure...' -ForegroundColor Cyan
-        Connect-AzAccount
+        try {
+            Connect-AzAccount | Out-Null
+        } catch {
+            Fail "Azure login failed. Run Connect-AzAccount manually and retry. Details: $($_.Exception.Message)"
+        }
         $context = Get-AzContext
     } else {
         Write-Host "[AUTH] Using existing context: $($context.Account.Id)" -ForegroundColor Gray
     }
+} else {
+    $context = Get-AzContext -ErrorAction SilentlyContinue
+    if (-not $context) {
+        Fail "-SkipLogin was specified but no Azure context was found. Run Connect-AzAccount or remove -SkipLogin."
+    }
 }
 
 if ($SubscriptionId) {
-    Set-AzContext -SubscriptionId $SubscriptionId | Out-Null
+    try {
+        Set-AzContext -SubscriptionId $SubscriptionId | Out-Null
+    } catch {
+        Fail "Failed to set subscription '$SubscriptionId'. Check access or subscription ID."
+    }
 }
 
 $context = Get-AzContext
@@ -144,12 +169,19 @@ Write-Host '[STORAGE] Setting up storage...' -ForegroundColor Cyan
 
 $storage = $null
 if ($StorageResourceGroup -or $ResourceGroupName) {
-    $storage = Get-AzStorageAccount -ResourceGroupName $storageRg -Name $StorageAccountName -ErrorAction SilentlyContinue
+    try {
+        $storage = Get-AzStorageAccount -ResourceGroupName $storageRg -Name $StorageAccountName -ErrorAction SilentlyContinue
+    } catch {
+        Fail "Failed to query storage account '$StorageAccountName' in RG '$storageRg'. Check permissions. Details: $($_.Exception.Message)"
+    }
 } else {
-    $matches = Get-AzStorageAccount | Where-Object { $_.StorageAccountName -eq $StorageAccountName }
+    try {
+        $matches = Get-AzStorageAccount | Where-Object { $_.StorageAccountName -eq $StorageAccountName }
+    } catch {
+        Fail "Failed to list storage accounts. Check permissions. Details: $($_.Exception.Message)"
+    }
     if ($matches.Count -gt 1) {
-        Write-Error "Multiple storage accounts named '$StorageAccountName' found. Specify -ResourceGroupName or -StorageResourceGroup."
-        exit 1
+        Fail "Multiple storage accounts named '$StorageAccountName' found. Specify -ResourceGroupName or -StorageResourceGroup."
     }
     $storage = $matches | Select-Object -First 1
 }
@@ -158,16 +190,24 @@ if (-not $storage) {
     $rg = Get-AzResourceGroup -Name $storageRg -ErrorAction SilentlyContinue
     if (-not $rg) {
         Write-Host "   Creating resource group: $storageRg" -ForegroundColor Gray
-        New-AzResourceGroup -Name $storageRg -Location $Location | Out-Null
+        try {
+            New-AzResourceGroup -Name $storageRg -Location $Location | Out-Null
+        } catch {
+            Fail "Failed to create resource group '$storageRg'. Check permissions. Details: $($_.Exception.Message)"
+        }
     }
     Write-Host "   Creating storage account: $StorageAccountName" -ForegroundColor Gray
-    $storage = New-AzStorageAccount \`
-        -ResourceGroupName $storageRg \`
-        -Name $StorageAccountName \`
-        -Location $Location \`
-        -SkuName Standard_LRS \`
-        -Kind StorageV2 \`
-        -AllowBlobPublicAccess $false
+    try {
+        $storage = New-AzStorageAccount \`
+            -ResourceGroupName $storageRg \`
+            -Name $StorageAccountName \`
+            -Location $Location \`
+            -SkuName Standard_LRS \`
+            -Kind StorageV2 \`
+            -AllowBlobPublicAccess $false
+    } catch {
+        Fail "Failed to create storage account '$StorageAccountName'. The name may already be taken or you may lack permissions. Details: $($_.Exception.Message)"
+    }
 } else {
     Write-Host "   Using existing storage: $StorageAccountName" -ForegroundColor Gray
 }
@@ -177,7 +217,11 @@ $storageCtx = $storage.Context
 $container = Get-AzStorageContainer -Name $ContainerName -Context $storageCtx -ErrorAction SilentlyContinue
 if (-not $container) {
     Write-Host "   Creating container: $ContainerName" -ForegroundColor Gray
-    New-AzStorageContainer -Name $ContainerName -Context $storageCtx -Permission Off | Out-Null
+    try {
+        New-AzStorageContainer -Name $ContainerName -Context $storageCtx -Permission Off | Out-Null
+    } catch {
+        Fail "Failed to create storage container '$ContainerName'. Check permissions. Details: $($_.Exception.Message)"
+    }
 }
 
 # ─── Upload Package ──────────────────────────────────────────────────────────
@@ -185,21 +229,29 @@ if (-not $container) {
 $blobName = "$configName-$($hash.Substring(0,8).ToLower()).zip"
 Write-Host "   Uploading $blobName..." -ForegroundColor Gray
 
-Set-AzStorageBlobContent \`
-    -File $zipPath \`
-    -Container $ContainerName \`
-    -Blob $blobName \`
-    -Context $storageCtx \`
-    -Force | Out-Null
+try {
+    Set-AzStorageBlobContent \`
+        -File $zipPath \`
+        -Container $ContainerName \`
+        -Blob $blobName \`
+        -Context $storageCtx \`
+        -Force | Out-Null
+} catch {
+    Fail "Failed to upload package to storage. Check network and permissions. Details: $($_.Exception.Message)"
+}
 
 $sasExpiry = (Get-Date).AddYears(3)
-$sasToken = New-AzStorageBlobSASToken \`
-    -Container $ContainerName \`
-    -Blob $blobName \`
-    -Permission r \`
-    -ExpiryTime $sasExpiry \`
-    -Context $storageCtx \`
-    -FullUri
+try {
+    $sasToken = New-AzStorageBlobSASToken \`
+        -Container $ContainerName \`
+        -Blob $blobName \`
+        -Permission r \`
+        -ExpiryTime $sasExpiry \`
+        -Context $storageCtx \`
+        -FullUri
+} catch {
+    Fail "Failed to generate SAS URL. Check permissions. Details: $($_.Exception.Message)"
+}
 
 Write-Host "   [OK] Uploaded (SAS expires $($sasExpiry.ToString('yyyy-MM-dd')))" -ForegroundColor Green
 Write-Host ''
@@ -228,11 +280,15 @@ $policyContent = $policyContent -replace '\\{\\{contentHash\\}\\}', $hash
 $tempPolicy = Join-Path $env:TEMP "$configName-policy.json"
 $policyContent | Set-Content $tempPolicy -Encoding UTF8
 
-$policyDef = New-AzPolicyDefinition \`
-    -Name $policyName \`
-    -DisplayName $displayName \`
-    -Policy $tempPolicy \`
-    -Mode 'Indexed'
+try {
+    $policyDef = New-AzPolicyDefinition \`
+        -Name $policyName \`
+        -DisplayName $displayName \`
+        -Policy $tempPolicy \`
+        -Mode 'Indexed'
+} catch {
+    Fail "Failed to create policy definition '$policyName'. Check permissions (Policy Contributor) and policy JSON. Details: $($_.Exception.Message)"
+}
 
 Remove-Item $tempPolicy -ErrorAction SilentlyContinue
 
@@ -292,7 +348,9 @@ Write-Host "  Config:            $configName" -ForegroundColor White`);
 Write-Host "  Storage:           $StorageAccountName/$ContainerName/$blobName" -ForegroundColor White
 Write-Host "  Policy Definition: $($policyDef.PolicyDefinitionId)" -ForegroundColor White
 Write-Host ''
-Write-Host '  Policy definition created. Assign it from Azure Portal.' -ForegroundColor Green`);
+Write-Host '  Policy definition created. Assign it from Azure Portal.' -ForegroundColor Green
+Write-Host '  Note: This script does not install the Guest Configuration extension. If it is already installed, no action is needed.' -ForegroundColor Gray
+Write-Host '  If not installed, assign the prerequisites initiative (ID 12794019-7a00-42cf-95c2-882eed337cc8).' -ForegroundColor Gray`);
 
   if (isRemediation) {
     lines.push(`Write-Host '  Remember: Create a remediation task after assignment to enable remediation!' -ForegroundColor Yellow`);

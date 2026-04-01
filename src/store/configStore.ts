@@ -45,6 +45,14 @@ function loadFromStorage(): ConfigurationState | null {
       localStorage.removeItem(STORAGE_KEY);
       return null;
     }
+
+    // Drop storage if any unknown schemaName is present (stale config)
+    const hasUnknown = parsed.resources.some((r: any) => !r?.schemaName || !schemasByName[r.schemaName]);
+    if (hasUnknown) {
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+
     return parsed;
   } catch {
     localStorage.removeItem(STORAGE_KEY);
@@ -366,7 +374,14 @@ export const useConfigStore = create<AppState>((set, get) => ({
     const instanceNames = new Set<string>();
     for (const resource of state.resources) {
       const schema = schemasByName[resource.schemaName];
-      if (!schema) continue;
+      if (!schema) {
+        errors.push({
+          level: 'error',
+          resourceId: resource.id,
+          message: `[${resource.instanceName}] Unknown resource type "${resource.schemaName}". Remove or re-add this resource.`,
+        });
+        continue;
+      }
 
       // Platform consistency
       if (schema.platform !== state.platform) {
@@ -377,7 +392,14 @@ export const useConfigStore = create<AppState>((set, get) => ({
         });
       }
 
-      // Unique instance names
+      // Unique + valid instance names
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(resource.instanceName)) {
+        errors.push({
+          level: 'error',
+          resourceId: resource.id,
+          message: `Invalid instance name: ${resource.instanceName}. Use letters, numbers, underscores; cannot start with a number.`,
+        });
+      }
       if (instanceNames.has(resource.instanceName)) {
         errors.push({
           level: 'error',
@@ -391,7 +413,8 @@ export const useConfigStore = create<AppState>((set, get) => ({
       for (const prop of schema.properties) {
         if (prop.required || prop.isKey) {
           const val = resource.properties[prop.name];
-          if (val === undefined || val === null || val === '') {
+          const emptyArray = Array.isArray(val) && val.length === 0;
+          if (val === undefined || val === null || val === '' || emptyArray) {
             errors.push({
               level: 'error',
               resourceId: resource.id,

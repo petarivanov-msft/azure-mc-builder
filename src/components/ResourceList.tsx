@@ -24,9 +24,10 @@ export const ResourceList: React.FC = () => {
       {resources.map((resource, index) => {
         const schema = schemasByName[resource.schemaName];
         const isSelected = resource.id === selectedResourceId;
-        const filledRequired = schema?.properties.filter(p => p.required).every(p => {
+        const filledRequired = schema?.properties.filter(p => p.required || p.isKey).every(p => {
           const val = resource.properties[p.name];
-          return val !== undefined && val !== null && val !== '';
+          const emptyArray = Array.isArray(val) && val.length === 0;
+          return val !== undefined && val !== null && val !== '' && !emptyArray;
         });
 
         return (

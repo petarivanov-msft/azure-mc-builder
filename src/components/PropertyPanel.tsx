@@ -181,7 +181,11 @@ export const PropertyPanel: React.FC = () => {
           size="small"
           style={{ width: '100%' }}
         />
-        <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>Unique identifier for this resource instance</div>
+        {!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(resource.instanceName) ? (
+          <div style={{ fontSize: '11px', color: '#c50f1f', marginTop: '2px' }}>Use letters, numbers, underscores; cannot start with a number.</div>
+        ) : (
+          <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>Unique identifier for this resource instance</div>
+        )}
       </div>
 
       {/* Required Properties */}
