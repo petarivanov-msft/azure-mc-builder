@@ -137,10 +137,10 @@ function generateOmiDocument(configName: string): string {
 }
 
 // Resources known to be unsupported in the GC agent sandbox
-// These require DISM cmdlets which are not available in the GC agent's PowerShell runtime
 export const GC_UNSUPPORTED_CLASSES = new Set([
   'MSFT_WindowsOptionalFeature', // needs DISM module (not on PS Gallery)
   'MSFT_WindowsPackageCab',      // needs DISM module (confirmed by MS docs)
+  'MSFT_ArchiveResource',        // GC agent cannot resolve this DSC class (confirmed by E2E test)
 ]);
 
 /** Validate a config before MOF generation. Throws on fatal issues. */
