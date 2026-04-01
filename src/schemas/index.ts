@@ -1,16 +1,12 @@
 import { ResourceSchema, Platform } from '../types';
 
 // Windows — Built-in (PSDscResources)
-import { archiveSchema } from './windows/archive';
 import { environmentSchema } from './windows/environment';
-import { groupSchema } from './windows/group';
 import { msiPackageSchema } from './windows/msiPackage';
 import { registrySchema } from './windows/registry';
 import { scriptSchema } from './windows/script';
 import { serviceSchema } from './windows/service';
 import { userSchema } from './windows/user';
-import { windowsOptionalFeatureSchema } from './windows/windowsOptionalFeature';
-import { windowsPackageCabSchema } from './windows/windowsPackageCab';
 import { windowsProcessSchema } from './windows/windowsProcess';
 
 // Windows — SecurityPolicyDsc
@@ -42,10 +38,9 @@ import { nxScriptSchema } from './linux/nxScript';
 
 export const allSchemas: ResourceSchema[] = [
   // Windows — Built-in (PSDscResources)
-  archiveSchema, environmentSchema, groupSchema, msiPackageSchema,
+  environmentSchema, msiPackageSchema,
   registrySchema, scriptSchema, serviceSchema, userSchema,
-  windowsOptionalFeatureSchema,
-  windowsPackageCabSchema, windowsProcessSchema,
+  windowsProcessSchema,
   // Windows — SecurityPolicyDsc
   accountPolicySchema, userRightsAssignmentSchema, securityOptionSchema,
   // Windows — AuditPolicyDsc
@@ -95,10 +90,9 @@ export function getSchemasByCategory(platform: Platform): CategoryGroup[] {
 // Re-export individual schemas
 export {
   // Windows — Built-in
-  archiveSchema, environmentSchema, groupSchema, msiPackageSchema,
+  environmentSchema, msiPackageSchema,
   registrySchema, scriptSchema, serviceSchema, userSchema,
-  windowsOptionalFeatureSchema,
-  windowsPackageCabSchema, windowsProcessSchema,
+  windowsProcessSchema,
   // Windows — SecurityPolicyDsc
   accountPolicySchema, userRightsAssignmentSchema, securityOptionSchema,
   // Windows — AuditPolicyDsc

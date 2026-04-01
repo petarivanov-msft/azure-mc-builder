@@ -17,7 +17,7 @@ MC uses PowerShell Desired State Configuration (DSC) under the hood, but you don
 ## What This Builder Does
 
 1. **Pick a platform** (Windows or Linux) and a configuration name
-2. **Add resources** from a catalog of 29 DSC resources across 6 modules
+2. **Add resources** from a catalog of DSC resources across 6 modules
 3. **Configure properties** with validated inputs, enums, and contextual help
 4. **Preview** the generated MOF, PS1, metaconfig, policy JSON, and deployment script in real time
 5. **Download** a ready-to-use package bundle with everything you need to deploy
@@ -71,26 +71,19 @@ pwsh ./deploy.ps1    # Authenticates, uploads ZIP, creates policy definition
 #    New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition $def -Scope '/subscriptions/<sub-id>'
 ```
 
-## Supported Resources (24 active + 5 blocked)
+## Supported Resources
 
 ### Windows — PSDscResources v2.12.0.0
 
-| Resource | What It Checks | Status |
-|----------|---------------|--------|
-| Registry | Registry key values and data | ✅ |
-| Service | Windows service state and startup type | ✅ |
-| WindowsProcess | Running processes | ✅ |
-| Environment | Environment variables | ✅ |
-| Script | Custom PowerShell compliance checks | ✅ |
-| Group | Local group membership | ✅ |
-| User | Local user accounts | ✅ |
-| ~~WindowsFeature~~ | ~~Windows features/roles~~ | ⛔ Blocked |
-| ~~WindowsOptionalFeature~~ | ~~Optional Windows features~~ | ⛔ Blocked |
-| ~~MsiPackage~~ | ~~Installed MSI packages~~ | ⛔ Blocked |
-| ~~WindowsPackageCab~~ | ~~Installed CAB packages~~ | ⛔ Blocked |
-| ~~Archive~~ | ~~ZIP/archive extraction~~ | ⛔ Blocked |
-
-> **⛔ Blocked resources** are not supported by the Azure Guest Configuration agent sandbox. The builder validates this at build time and will show an error if you try to use them. These resources require system-level access that the GC agent's sandboxed DSC process cannot provide.
+| Resource | What It Checks |
+|----------|---------------|
+| Registry | Registry key values and data |
+| Service | Windows service state and startup type |
+| WindowsProcess | Running processes |
+| Environment | Environment variables |
+| Script | Custom PowerShell compliance checks |
+| MsiPackage | Installed MSI packages |
+| User | Local user accounts |
 
 ### Windows — SecurityPolicyDsc v2.10.0.0
 

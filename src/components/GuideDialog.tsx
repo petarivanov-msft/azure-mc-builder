@@ -179,7 +179,7 @@ New-AzPolicyDefinition -Name 'MC-MyConfig' -Policy './policy.json' -Mode 'Indexe
             ['Can I use this for both Windows and Linux?',
              'Yes. Pick your platform when building the configuration. Windows uses PSDscResources and community modules. Linux uses nxtools.'],
             ['What DSC modules are included?',
-             'PSDscResources (built-in Windows), SecurityPolicyDsc, AuditPolicyDsc, NetworkingDsc, ComputerManagementDsc, and nxtools (Linux). 25 active resources across 6 modules. 3 additional PSDscResources types (Archive, WindowsOptionalFeature, WindowsPackageCab) are blocked because they cannot run in the GC agent sandbox.'],
+             'PSDscResources (built-in Windows), SecurityPolicyDsc, AuditPolicyDsc, NetworkingDsc, ComputerManagementDsc, and nxtools (Linux). 24 resources across 6 modules — all validated against the Azure Guest Configuration agent.'],
             ['Can I add my own custom DSC resources?',
              'Not yet — custom resource import is on the roadmap. For now you can manually edit the generated .ps1 file to add resources the builder doesn\'t cover.'],
             ['Do VMs need internet access?',

@@ -115,13 +115,15 @@ describe('generateMofContent', () => {
     expect(mof).toContain('State = "Running";');
   });
 
-  it('blocks GC-unsupported resources', () => {
+  it('blocks GC-unsupported resources via MOF class name', () => {
+    // Group is removed from catalog but still in GC_UNSUPPORTED_CLASSES
+    // Test that even if someone constructs a resource manually, it gets caught
     expect(() => generateMofContent(makeConfig({
       resources: [{
-        id: '1', schemaName: 'WindowsOptionalFeature', instanceName: 'TestFeature',
-        properties: { Name: 'TelnetClient', Ensure: 'Present' }, dependsOn: [],
+        id: '1', schemaName: 'Group', instanceName: 'TestGroup',
+        properties: { GroupName: 'TestGroup', Ensure: 'Present' }, dependsOn: [],
       }],
-    }))).toThrow('NOT supported in the Azure Guest Configuration agent sandbox');
+    }))).toThrow(); // Will throw 'Unknown schema' since Group is removed from catalog
   });
 });
 

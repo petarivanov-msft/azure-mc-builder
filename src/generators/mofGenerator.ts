@@ -136,11 +136,14 @@ function generateOmiDocument(configName: string): string {
 };`;
 }
 
-// Resources known to be unsupported in the GC agent sandbox
+// Resources removed from the catalog — these crash or fail in the GC agent sandbox.
+// Kept here only as a safety net in case someone manually references them.
 export const GC_UNSUPPORTED_CLASSES = new Set([
-  'MSFT_WindowsOptionalFeature', // needs DISM module (not on PS Gallery)
-  'MSFT_WindowsPackageCab',      // needs DISM module (confirmed by MS docs)
-  'MSFT_ArchiveResource',        // GC agent cannot resolve this DSC class (confirmed by E2E test)
+  'MSFT_WindowsOptionalFeature', // needs DISM module
+  'MSFT_WindowsPackageCab',      // needs DISM module
+  'MSFT_ArchiveResource',        // GC agent cannot resolve class
+  'MSFT_RoleResource',           // WindowsFeature — needs Server Manager
+  'MSFT_GroupResource',          // crashes in GC sandbox (GetConfiguration fails)
 ]);
 
 /** Validate a config before MOF generation. Throws on fatal issues. */

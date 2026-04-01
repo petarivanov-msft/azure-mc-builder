@@ -146,7 +146,6 @@ describe('Schema consistency checks', () => {
 // ─── Windows Resources — MOF Generation ──────────────────
 
 const windowsSchemas = allSchemas.filter(s => s.platform === 'Windows' && !GC_UNSUPPORTED_CLASSES.has(s.mofClassName));
-const blockedSchemas = allSchemas.filter(s => GC_UNSUPPORTED_CLASSES.has(s.mofClassName));
 const linuxSchemas = allSchemas.filter(s => s.platform === 'Linux');
 
 describe('MOF generation — all Windows resources', () => {
@@ -171,16 +170,6 @@ describe('MOF generation — all Windows resources', () => {
           expect(mof, `Missing required property ${p.name}`).toContain(p.name);
         }
       }
-    });
-  }
-});
-
-describe('GC-unsupported Windows resources are blocked', () => {
-  for (const schema of blockedSchemas) {
-    it(`${schema.resourceName} throws validation error`, () => {
-      const instance = buildTestInstance(schema.resourceName, `Test${schema.resourceName}`);
-      const config = makeConfig('Windows', [instance]);
-      expect(() => generateMofContent(config)).toThrow('NOT supported in the Azure Guest Configuration agent sandbox');
     });
   }
 });
@@ -629,16 +618,16 @@ describe('Cross-resource dependencies', () => {
 // ─── Resource count sanity check ────────────────────────
 
 describe('Resource count', () => {
-  it('has 20 Windows resources', () => {
-    expect(allSchemas.filter(s => s.platform === 'Windows').length).toBe(20);
+  it('has 16 Windows resources', () => {
+    expect(allSchemas.filter(s => s.platform === 'Windows').length).toBe(16);
   });
 
   it('has 8 Linux resources', () => {
     expect(allSchemas.filter(s => s.platform === 'Linux').length).toBe(8);
   });
 
-  it('has 28 total resources', () => {
-    expect(allSchemas.length).toBe(28);
+  it('has 24 total resources', () => {
+    expect(allSchemas.length).toBe(24);
   });
 });
 

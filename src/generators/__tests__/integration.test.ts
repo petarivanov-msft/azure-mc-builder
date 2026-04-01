@@ -100,17 +100,7 @@ function runAllGenerators(config: ConfigurationState) {
 // ─── Schema tests ────────────────────────────────────────────────────────────
 
 describe('Every schema through full pipeline', () => {
-  const blockedSchemas = allSchemas.filter(s => GC_UNSUPPORTED_CLASSES.has(s.mofClassName));
   const supportedSchemas = allSchemas.filter(s => !GC_UNSUPPORTED_CLASSES.has(s.mofClassName));
-
-  describe('GC-unsupported resources are blocked', () => {
-    for (const schema of blockedSchemas) {
-      it(`${schema.resourceName} throws validation error`, () => {
-        const config = buildSingleResourceConfig(schema.resourceName);
-        expect(() => generateMofContent(config)).toThrow('NOT supported in the Azure Guest Configuration agent sandbox');
-      });
-    }
-  });
 
   for (const schema of supportedSchemas) {
     describe(`${schema.resourceName} (${schema.platform})`, () => {
@@ -286,8 +276,8 @@ describe('Cross-cutting validation', () => {
     }
   });
 
-  it('schema count matches expected (28)', () => {
-    expect(allSchemas.length).toBe(28);
+  it('schema count matches expected (24)', () => {
+    expect(allSchemas.length).toBe(24);
   });
 
   it('template count matches expected (9)', () => {
