@@ -116,16 +116,12 @@ function buildExistenceCondition(configParams: Array<{ name: string; value: stri
   };
 }
 
-/** Generate DeployIfNotExists policy 'then' block.
- *  ALL Machine Configuration policies use DINE — the GC assignment must be created on the VM.
- *  For Audit mode: assignmentType = 'Audit' (MonitorOnly)
- *  For AuditAndSet mode: assignmentType = 'ApplyAndAutoCorrect' (remediates drift)
- */
+/** Generate DeployIfNotExists policy 'then' block for AuditAndSet (remediation) mode */
 function generateDeployThen(config: ConfigurationState): object {
   const isWindows = config.platform === 'Windows';
   const extensionType = isWindows ? 'ConfigurationforWindows' : 'ConfigurationforLinux';
   const extensionName = isWindows ? 'AzurePolicyforWindows' : 'AzurePolicyforLinux';
-  const assignmentType = config.mode === 'AuditAndSet' ? 'ApplyAndAutoCorrect' : 'Audit';
+  const assignmentType = 'ApplyAndAutoCorrect';
   const configParams = buildConfigurationParameters(config);
 
   return {
@@ -270,7 +266,9 @@ export function generatePolicyJson(config: ConfigurationState): object {
       parameters: {},
       policyRule: {
         if: generateIfCondition(isWindows),
-        then: generateDeployThen(config),
+        then: isRemediation
+          ? generateDeployThen(config)
+          : generateAuditThen(config.configName),
       },
     },
   };

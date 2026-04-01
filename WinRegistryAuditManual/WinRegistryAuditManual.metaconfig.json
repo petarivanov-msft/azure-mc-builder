@@ -1,0 +1,19 @@
+{
+  "Type": "Audit",
+  "configurationMode": "MonitorOnly",
+  "configurationModeFrequencyMins": 15,
+  "refreshFrequencyMins": 5,
+  "actionAfterReboot": "ContinueConfiguration",
+  "allowModuleOverwrite": false,
+  "rebootIfNeeded": false,
+  "category": "Policy",
+  "customPackageSettings": true,
+  "preferPowerShellModule": false,
+  "solutionType": "custom_inguest",
+  "executionPolicy": {
+    "complianceStatus": true,
+    "displayId": "",
+    "execute": true,
+    "reasons": []
+  }
+}

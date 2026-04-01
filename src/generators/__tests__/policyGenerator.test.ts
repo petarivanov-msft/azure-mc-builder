@@ -17,24 +17,19 @@ function makeConfig(overrides: Partial<ConfigurationState> = {}): ConfigurationS
 
 describe('policyGenerator', () => {
   describe('Audit mode', () => {
-    it('generates DeployIfNotExists effect for Audit mode', () => {
+    it('generates AuditIfNotExists effect', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'Audit' })) as any;
-      expect(policy.properties.policyRule.then.effect).toBe('deployIfNotExists');
+      expect(policy.properties.policyRule.then.effect).toBe('auditIfNotExists');
     });
 
-    it('includes deployment block with Audit assignmentType', () => {
+    it('does not include deployment block', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'Audit' })) as any;
-      expect(policy.properties.policyRule.then.details.deployment).toBeDefined();
-      // Find the GC assignment resource in the ARM template
-      const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
-      const gcAssignment = resources.find((r: any) => r.type?.includes('guestConfigurationAssignments'));
-      expect(gcAssignment.properties.guestConfiguration.assignmentType).toBe('Audit');
+      expect(policy.properties.policyRule.then.details.deployment).toBeUndefined();
     });
 
-    it('includes roleDefinitionIds for Audit mode (DINE needs permissions)', () => {
+    it('does not include roleDefinitionIds', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'Audit' })) as any;
-      expect(policy.properties.policyRule.then.details.roleDefinitionIds).toBeDefined();
-      expect(policy.properties.policyRule.then.details.roleDefinitionIds.length).toBeGreaterThan(0);
+      expect(policy.properties.policyRule.then.details.roleDefinitionIds).toBeUndefined();
     });
 
     it('sets correct config name in details', () => {
