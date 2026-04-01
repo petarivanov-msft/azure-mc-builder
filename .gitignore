@@ -26,6 +26,18 @@ dist-ssr
 .env
 *.pptx
 
+# OpenClaw agent files
+.openclaw/
+AGENTS.md
+SOUL.md
+IDENTITY.md
+USER.md
+TOOLS.md
+HEARTBEAT.md
+MEMORY.md
+TOMORROW-TEST-PLAN.md
+memory/
+
 # Debug/one-off scripts
 fix-*.ts
 generate-win-*.ts
