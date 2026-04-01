@@ -56,11 +56,11 @@ describe('policyGenerator', () => {
       expect(policy.properties.policyRule.then.effect).toBe('deployIfNotExists');
     });
 
-    it('includes roleDefinitionIds with Contributor role', () => {
+    it('includes roleDefinitionIds with Guest Configuration Resource Contributor role', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet' })) as any;
       const roleIds = policy.properties.policyRule.then.details.roleDefinitionIds;
       expect(roleIds).toContain(
-        '/providers/microsoft.authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c'
+        '/providers/Microsoft.Authorization/roleDefinitions/088ab73d-1256-47ae-bea9-9de8e7131f31'
       );
     });
 
@@ -157,7 +157,7 @@ describe('policyGenerator', () => {
       expect(params[1].value).toBe('Hello');
     });
 
-    it('includes parameterHash in existenceCondition when parameters exist', () => {
+    it('uses simple complianceStatus existenceCondition (matches MS cmdlet)', () => {
       const config = makeConfig({
         mode: 'AuditAndSet',
         resources: [
@@ -172,17 +172,14 @@ describe('policyGenerator', () => {
       });
       const policy = generatePolicyJson(config) as any;
       const ec = policy.properties.policyRule.then.details.existenceCondition;
-      expect(ec.allOf.length).toBe(2);
-      expect(ec.allOf[1].field).toBe(
-        'Microsoft.GuestConfiguration/guestConfigurationAssignments/parameterHash'
-      );
+      expect(ec.field).toBe('Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus');
+      expect(ec.equals).toBe('Compliant');
     });
 
-    it('omits parameterHash from existenceCondition when no parameters', () => {
+    it('existenceCondition is simple complianceStatus check with no parameters too', () => {
       const policy = generatePolicyJson(makeConfig({ mode: 'AuditAndSet', resources: [] })) as any;
       const ec = policy.properties.policyRule.then.details.existenceCondition;
-      expect(ec.allOf.length).toBe(1);
-      expect(ec.allOf[0].field).toContain('complianceStatus');
+      expect(ec.field).toContain('complianceStatus');
     });
   });
 
@@ -245,16 +242,17 @@ describe('policyGenerator', () => {
       }
     });
 
-    it('DINE policy only contains GC assignment resources (no extension)', () => {
+    it('DINE policy contains GC assignment resources for VM, Arc, and VMSS', () => {
       const policy = generatePolicyJson(makeConfig({
         mode: 'AuditAndSet',
         resources: [{ id: '1', schemaName: 'Registry', instanceName: 'R1', properties: { Key: 'HKLM:\\Test', ValueName: 'V' }, dependsOn: [] }],
       })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
-      const extResource = resources.find((r: any) => r.type?.includes('extensions'));
-      expect(extResource).toBeUndefined();
-      // Should only have GC assignment resources (Arc + VM)
-      expect(resources.length).toBe(2);
+      expect(resources.length).toBe(3);
+      const types = resources.map((r: any) => r.type);
+      expect(types).toContain('Microsoft.Compute/virtualMachines/providers/guestConfigurationAssignments');
+      expect(types).toContain('Microsoft.HybridCompute/machines/providers/guestConfigurationAssignments');
+      expect(types).toContain('Microsoft.Compute/virtualMachineScaleSets/providers/guestConfigurationAssignments');
     });
 
     it('Audit policy targets correct OS for Linux', () => {
@@ -267,7 +265,7 @@ describe('policyGenerator', () => {
       expect(osMatch.like).toBe('Linux*');
     });
 
-    it('parameterHash includes all resource parameters', () => {
+    it('configurationParameter includes all resource parameters', () => {
       const policy = generatePolicyJson(makeConfig({
         mode: 'AuditAndSet',
         resources: [
@@ -275,11 +273,12 @@ describe('policyGenerator', () => {
           { id: '2', schemaName: 'Registry', instanceName: 'R2', properties: { Key: 'HKLM:\\B', ValueName: 'V2', ValueType: 'String', ValueData: ['test'] }, dependsOn: ['1'] },
         ],
       })) as any;
-      const ec = policy.properties.policyRule.then.details.existenceCondition;
-      const hashField = ec.allOf.find((c: any) => c.field?.includes('parameterHash'));
-      expect(hashField).toBeDefined();
-      // Should reference parameter values from both resources
-      expect(hashField.equals).toContain('parameterHash:');
+      const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
+      const vmResource = resources.find((r: any) => r.type?.includes('virtualMachines/providers'));
+      const configParam = vmResource.properties.guestConfiguration.configurationParameter;
+      expect(configParam.length).toBeGreaterThan(0);
+      expect(configParam.some((p: any) => p.name.includes('[Registry]R1'))).toBe(true);
+      expect(configParam.some((p: any) => p.name.includes('[Registry]R2'))).toBe(true);
     });
   });
 });
