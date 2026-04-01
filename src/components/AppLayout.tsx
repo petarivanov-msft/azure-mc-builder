@@ -44,8 +44,17 @@ const App: React.FC = () => {
       const a = document.createElement('a');
       a.href = url;
       a.download = `${store.configName}.zip`;
+      a.style.display = 'none';
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      // Small delay before cleanup to ensure download starts
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+    } catch (err) {
+      console.error('Download failed:', err);
+      alert(`Download failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setDownloading(false);
     }
