@@ -38,9 +38,9 @@ ${config.description ? `\n${config.description}\n` : ''}
 |------|-------------|
 | \`${config.configName}.mof\` | Compiled MOF configuration (what the MC agent evaluates) |
 | \`${config.configName}.ps1\` | PowerShell DSC Configuration script (source, for reference) |
-| \`metaconfig.json\` | MC agent behavior (reference copy — package.ps1 embeds this automatically) |
-| \`policy.json\` | Azure Policy definition (AuditIfNotExists) |
-| \`package.ps1\` | Helper script — creates deployable package and tests locally |
+| \`${config.configName}.metaconfig.json\` | MC agent behavior (reference copy — package.ps1 embeds this automatically) |
+| \`policy.json\` | Azure Policy definition (AuditIfNotExists or DeployIfNotExists) |
+| \`package.ps1\` | Helper script — creates deployable package |
 | \`README.md\` | This file |
 
 ## Quick Start
@@ -60,7 +60,7 @@ ${config.description ? `\n${config.description}\n` : ''}
 pwsh ./package.ps1
 \`\`\`
 
-This installs \`GuestConfiguration\` and the required DSC modules (${modules.map(m => `\`${m.name}\``).join(', ')}), creates a deployable .zip from the pre-generated MOF, and runs a local compliance test.
+This installs \`GuestConfiguration\` and the required DSC modules (${modules.map(m => `\`${m.name}\``).join(', ')}), then creates a deployable .zip from the pre-generated MOF.
 
 ### 2. Upload to Azure Blob Storage
 
@@ -89,13 +89,13 @@ $hash = (Get-FileHash '.\\output\\${config.configName}.zip' -Algorithm SHA256).H
 2. Create the policy definition:
 
 \`\`\`powershell
-New-AzPolicyDefinition -Name '${config.configName}' -Policy '.\\policy.json' -Mode 'Indexed'
+New-AzPolicyDefinition -Name 'MC-${config.configName}' -Policy '.\\policy.json' -Mode 'Indexed'
 \`\`\`
 
 3. Assign it:
 
 \`\`\`powershell
-$def = Get-AzPolicyDefinition -Name '${config.configName}'
+$def = Get-AzPolicyDefinition -Name 'MC-${config.configName}'
 New-AzPolicyAssignment -Name '${config.configName}' -PolicyDefinition $def \\
   -Scope '/subscriptions/<subscription-id>'
 \`\`\`

@@ -12,7 +12,7 @@ export default defineConfig({
           if (id.includes('node_modules')) {
             if (id.includes('@fluentui')) return 'vendor-fluent';
             if (id.includes('react-dom') || id.includes('/react/')) return 'vendor-react';
-            if (id.includes('jszip') || id.includes('uuid') || id.includes('zustand') || id.includes('file-saver')) return 'vendor-utils';
+            if (id.includes('jszip') || id.includes('uuid') || id.includes('zustand')) return 'vendor-utils';
           }
         },
       },

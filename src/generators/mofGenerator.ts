@@ -167,7 +167,8 @@ export function validateConfig(config: ConfigurationState): string[] {
 
     // Check required/key properties are present
     for (const propSchema of schema.properties) {
-      if ((propSchema.required || propSchema.isKey) && !propSchema.defaultValue) {
+      const hasDefault = propSchema.defaultValue !== undefined;
+      if ((propSchema.required || propSchema.isKey) && !hasDefault) {
         const value = resource.properties[propSchema.name];
         if (value === undefined || value === null) {
           throw new Error(

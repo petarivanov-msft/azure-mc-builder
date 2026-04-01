@@ -59,9 +59,10 @@ function buildConfigurationParameters(config: ConfigurationState): Array<{ name:
   for (const resource of config.resources) {
     for (const [propName, propValue] of Object.entries(resource.properties)) {
       if (propValue !== undefined && propValue !== null && propValue !== '') {
+        const value = Array.isArray(propValue) ? JSON.stringify(propValue) : String(propValue);
         params.push({
           name: `[${resource.schemaName}]${resource.instanceName};${propName}`,
-          value: String(propValue),
+          value,
         });
       }
     }

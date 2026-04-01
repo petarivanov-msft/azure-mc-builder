@@ -312,6 +312,7 @@ export const useConfigStore = create<AppState>((set, get) => ({
         if (typeof r !== 'object' || r === null) throw new Error(`resources[${i}] must be an object`);
         if (typeof r.id !== 'string') throw new Error(`resources[${i}].id must be a string`);
         if (typeof r.schemaName !== 'string') throw new Error(`resources[${i}].schemaName must be a string`);
+        if (!schemasByName[r.schemaName]) throw new Error(`resources[${i}].schemaName is not a valid resource type`);
         if (typeof r.instanceName !== 'string') throw new Error(`resources[${i}].instanceName must be a string`);
         if (typeof r.properties !== 'object' || r.properties === null) throw new Error(`resources[${i}].properties must be an object`);
         if (!Array.isArray(r.dependsOn)) throw new Error(`resources[${i}].dependsOn must be an array`);
@@ -386,9 +387,9 @@ export const useConfigStore = create<AppState>((set, get) => ({
       }
       instanceNames.add(resource.instanceName);
 
-      // Required properties
+      // Required + key properties
       for (const prop of schema.properties) {
-        if (prop.required) {
+        if (prop.required || prop.isKey) {
           const val = resource.properties[prop.name];
           if (val === undefined || val === null || val === '') {
             errors.push({

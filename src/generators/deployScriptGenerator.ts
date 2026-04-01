@@ -142,7 +142,18 @@ if (-not $StorageAccountName) {
 
 Write-Host '[STORAGE] Setting up storage...' -ForegroundColor Cyan
 
-$storage = Get-AzStorageAccount | Where-Object { $_.StorageAccountName -eq $StorageAccountName } | Select-Object -First 1
+$storage = $null
+if ($StorageResourceGroup -or $ResourceGroupName) {
+    $storage = Get-AzStorageAccount -ResourceGroupName $storageRg -Name $StorageAccountName -ErrorAction SilentlyContinue
+} else {
+    $matches = Get-AzStorageAccount | Where-Object { $_.StorageAccountName -eq $StorageAccountName }
+    if ($matches.Count -gt 1) {
+        Write-Error "Multiple storage accounts named '$StorageAccountName' found. Specify -ResourceGroupName or -StorageResourceGroup."
+        exit 1
+    }
+    $storage = $matches | Select-Object -First 1
+}
+
 if (-not $storage) {
     $rg = Get-AzResourceGroup -Name $storageRg -ErrorAction SilentlyContinue
     if (-not $rg) {
