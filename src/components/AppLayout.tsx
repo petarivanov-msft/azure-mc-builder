@@ -11,6 +11,7 @@ import { PropertyPanel } from './PropertyPanel';
 import { OutputPreview } from './OutputPreview';
 import { GuideDialog } from './GuideDialog';
 import { TemplateGallery } from './TemplateGallery';
+import { ErrorBoundary } from './ErrorBoundary';
 import { useConfigStore } from '../store/configStore';
 import { generateBundle } from '../generators';
 
@@ -230,7 +231,9 @@ const App: React.FC = () => {
         </div>
 
         {/* Bottom: Output preview */}
-        <OutputPreview />
+        <ErrorBoundary>
+          <OutputPreview />
+        </ErrorBoundary>
 
         {/* Guide dialog */}
         <GuideDialog open={guideOpen} onClose={() => setGuideOpen(false)} />
