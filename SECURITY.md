@@ -8,14 +8,16 @@ The generated deployment scripts (`package.ps1`, `deploy.ps1`) run on **your wor
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in this project, please report it responsibly:
+If you discover a security vulnerability in this project, please report it through GitHub's **private vulnerability reporting**:
 
 1. **Do NOT open a public GitHub issue** for security vulnerabilities
-2. Email: **petarivanov-msft@users.noreply.github.com** with:
+2. Go to the [Security tab](https://github.com/petarivanov-msft/azure-mc-builder/security) of this repository
+3. Click **"Report a vulnerability"**
+4. Include:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact
-3. You should receive a response within 7 days
+5. You should receive a response within 7 days
 
 ## Security Model
 
