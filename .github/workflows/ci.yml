@@ -30,7 +30,7 @@ jobs:
       - name: Run build
         run: npm run build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -38,7 +38,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-test-output
           path: test-output.txt
@@ -83,7 +83,7 @@ jobs:
 
       - name: Upload built packages
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-packages
           path: /tmp/mc-e2e/**/output/*.zip
@@ -123,7 +123,7 @@ jobs:
 
       - name: Upload built packages
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-packages
           path: ${{ runner.temp }}/mc-e2e/**/output/*.zip
