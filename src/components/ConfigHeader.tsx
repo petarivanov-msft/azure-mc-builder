@@ -1,20 +1,17 @@
 import React from 'react';
 import { Input, Select, Label, Textarea, Tooltip } from '@fluentui/react-components';
 import { useConfigStore } from '../store/configStore';
+import { IDENTIFIER_PATTERN } from '../utils/configuration';
 
 export const ConfigHeader: React.FC = () => {
   const { configName, platform, mode, version, description, setConfigName, setPlatform, setMode, setVersion, setDescription } = useConfigStore();
 
-  const [nameError, setNameError] = React.useState('');
+  const nameError = IDENTIFIER_PATTERN.test(configName) ? '' :
+    'Use letters, numbers, underscores; cannot start with a number.';
 
   const handleNameChange = (_: unknown, d: { value: string }) => {
     const v = d.value;
     setConfigName(v);
-    if (v && !/^[A-Za-z][A-Za-z0-9_]*$/.test(v)) {
-      setNameError('Must start with a letter and contain only letters, numbers, and underscores');
-    } else {
-      setNameError('');
-    }
   };
 
   const infoIcon: React.CSSProperties = {
@@ -25,7 +22,7 @@ export const ConfigHeader: React.FC = () => {
   };
 
   return (
-    <div style={{
+    <div onBlur={useConfigStore.getState().finishEditing} style={{
       display: 'flex', flexWrap: 'wrap', gap: '12px',
       padding: '14px 20px',
       background: '#fff',

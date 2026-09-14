@@ -61,7 +61,7 @@ export const GuideDialog: React.FC<Props> = ({ open, onClose }) => (
                 ['policy.json', 'Azure Policy definition template'],
                 ['package.ps1', 'Helper script that builds the deployable package'],
                 ['deploy.ps1', 'Deploy script — uploads to blob storage and creates the policy definition'],
-                ['metaconfig.json', 'Package metadata (reference copy — package.ps1 embeds this automatically)'],
+                ['metaconfig.json', 'Package Type and Version — package.ps1 passes these to the official packaging cmdlet'],
                 ['README.md', 'Full deployment instructions'],
               ].map(([file, desc], i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
@@ -77,13 +77,13 @@ export const GuideDialog: React.FC<Props> = ({ open, onClose }) => (
           <p style={p}>You need <strong>PowerShell 7+</strong> on your machine (Windows, Mac, or Linux). Run <code>pwsh</code> (not <code>powershell</code> — that's Windows PowerShell 5.1 and won't work).</p>
           <pre style={code}>{`# Extract the ZIP, then run:
 pwsh ./package.ps1`}</pre>
-          <p style={p}>The script automatically installs the <code>GuestConfiguration</code> module and all required DSC resource modules (detected from the MOF), bundles them into a deployable <code>.zip</code> via <code>New-GuestConfigurationPackage</code>, and runs a local compliance test.</p>
+          <p style={p}>The script automatically installs the <code>GuestConfiguration</code> module and all required DSC resource modules (detected from the MOF), then bundles them into a deployable <code>.zip</code> via <code>New-GuestConfigurationPackage</code>. Run the local compliance test below separately.</p>
 
           {/* Step 4 */}
           <h2 style={h2}>Step 4 — Deploy to Azure</h2>
           <p style={p}>The <code>deploy.ps1</code> script handles everything — uploads the package to Azure Blob Storage and creates the Azure Policy definition. You need the <strong>Az PowerShell module</strong> (<code>Install-Module Az -Scope CurrentUser</code>).</p>
           <pre style={code}>{`# Run the deploy script (authenticates, uploads, creates policy)
-pwsh ./deploy.ps1`}</pre>
+pwsh ./deploy.ps1 -StorageAccountName 'YourStorageAccount'`}</pre>
           <p style={p}>The script will:</p>
           <ol>
             <li style={li}>Connect to your Azure account (if not already signed in)</li>
@@ -92,17 +92,17 @@ pwsh ./deploy.ps1`}</pre>
             <li style={li}>Create the Azure Policy definition with the correct content URI and hash</li>
           </ol>
           <p style={p}>After deployment, assign the policy from the Azure Portal or PowerShell.</p>
+          <p style={p}>Existing storage uses Microsoft Entra ID and requires Storage Blob Data Contributor at storage-account scope. The default read-only SAS expires in 6 days: renew it before expiry. Shared Key is an explicit opt-in, never an automatic fallback. See the generated README for permissions and renewal options.</p>
 
           <details style={{ margin: '8px 0 16px', fontSize: '13px' }}>
             <summary style={{ cursor: 'pointer', color: '#0078d4', fontWeight: 600 }}>Manual deployment (alternative)</summary>
             <p style={p}>If you prefer to deploy manually instead of using <code>deploy.ps1</code>:</p>
             <pre style={code}>{`# Upload to blob storage
-$ctx = (Get-AzStorageAccount -ResourceGroupName 'myRG' -Name 'mcpackages').Context
+$ctx = New-AzStorageContext -StorageAccountName 'YourStorageAccount' -UseConnectedAccount
 Set-AzStorageBlobContent -Container 'guestconfig' -File './output/MyConfig.zip' -Blob 'MyConfig.zip' -Context $ctx
 
 # Generate SAS URL
-$uri = New-AzStorageBlobSASToken -Container 'guestconfig' -Blob 'MyConfig.zip' \\
-  -Permission r -ExpiryTime (Get-Date).AddYears(3) -Context $ctx -FullUri
+$uri = New-AzStorageBlobSASToken -Container 'guestconfig' -Blob 'MyConfig.zip' -Permission r -Protocol HttpsOnly -StartTime (Get-Date).AddMinutes(-5) -ExpiryTime (Get-Date).AddDays(6) -Context $ctx -FullUri
 
 # Create policy definition (replace placeholders in policy.json first)
 New-AzPolicyDefinition -Name 'MC-MyConfig' -Policy './policy.json' -Mode 'Indexed'`}</pre>

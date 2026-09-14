@@ -1,5 +1,6 @@
 import { ConfigurationState } from '../types';
 import { schemasByName } from '../schemas';
+import { assertValidIdentifiers } from '../utils/configuration';
 
 /** Sanitise a string for safe embedding inside PowerShell single-quoted literals. */
 function sanitisePs1String(value: string): string {
@@ -7,13 +8,6 @@ function sanitisePs1String(value: string): string {
     .replace(/\0/g, '')           // strip null bytes
     .replace(/\r(?!\n)/g, '')     // strip lone CR (keep CRLF)
     .replace(/'/g, "''");         // escape single quotes for PS
-}
-
-/** Sanitise a DSC identifier (config name, module name).
- *  Must match [a-zA-Z_][a-zA-Z0-9_]* — strip anything else. */
-function sanitiseIdentifier(value: string): string {
-  const cleaned = value.replace(/[^a-zA-Z0-9_]/g, '');
-  return /^[a-zA-Z_]/.test(cleaned) ? cleaned : `_${cleaned}`;
 }
 
 /** Collect unique modules used by the configuration's resources */
@@ -30,9 +24,10 @@ function getUniqueModules(config: ConfigurationState): { name: string; version: 
 
 /** Generate the package.ps1 helper script */
 export function generatePackageScript(config: ConfigurationState): string {
+  assertValidIdentifiers(config);
   const packageType = config.mode === 'AuditAndSet' ? 'AuditAndSet' : 'Audit';
   const modules = getUniqueModules(config);
-  const safeName = sanitiseIdentifier(config.configName);
+  const safeName = config.configName;
 
   // Build a known-modules hashtable for the static path
   const knownModulesEntries = modules.map(m =>
@@ -57,6 +52,12 @@ if (-not (Test-Path $mofPath)) {
     exit 1
 }
 
+$metadataPath = Join-Path $PSScriptRoot '${safeName}.metaconfig.json'
+$metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+if ($metadata.Type -cne '${packageType}' -or $metadata.Version -cne '${config.version}') {
+    throw 'Package metadata differs from this build. Update the configuration in the builder and download a new bundle.'
+}
+
 # ─── Detect Required Modules from MOF ───────────────────────────────────────
 # Parse ModuleName/ModuleVersion pairs from the MOF's OMI_ConfigurationDocument
 Write-Host '[DETECT] Detecting required DSC modules from MOF...' -ForegroundColor Cyan
@@ -70,10 +71,10 @@ ${knownModulesEntries}
 
 # Parse the MOF for ModuleName/ModuleVersion references
 $moduleRegex = [regex]'ModuleName\\s*=\\s*"(?<name>[^"]+)"\\s*;\\s*ModuleVersion\\s*=\\s*"(?<ver>[^"]+)"'
-$matches = $moduleRegex.Matches($mofContent)
+$mofMatches = $moduleRegex.Matches($mofContent)
 $requiredModules = @{}
 
-foreach ($match in $matches) {
+foreach ($match in $mofMatches) {
     $name = $match.Groups['name'].Value
     $ver = $match.Groups['ver'].Value
     if (-not $requiredModules.ContainsKey($name)) {
@@ -124,7 +125,8 @@ $package = New-GuestConfigurationPackage \`
     -Name '${safeName}' \`
     -Configuration $mofPath \`
     -Path $outputDir \`
-    -Type '${packageType}' \`
+    -Type $metadata.Type \`
+    -Version $metadata.Version \`
     -Force
 
 # ─── Fix Module Structure (Azure GC requires versioned paths) ────────────────

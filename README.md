@@ -28,10 +28,10 @@ The downloaded bundle contains:
 |------|---------|
 | `<Name>.mof` | Compiled DSC configuration (what the MC agent evaluates) |
 | `<Name>.ps1` | PowerShell DSC Configuration script (human-readable source) |
-| `metaconfig.json` | MC agent behavior settings (reference copy — `package.ps1` embeds this automatically) |
+| `<Name>.metaconfig.json` | Package Type and Version, passed by `package.ps1` to the official packaging cmdlet |
 | `policy.json` | Azure Policy definition (AuditIfNotExists or DeployIfNotExists) |
-| `package.ps1` | Helper script — auto-installs modules, creates deployable package, tests locally |
-| `deploy.ps1` | Deploy script — uploads ZIP to blob storage and creates the policy definition |
+| `package.ps1` | Helper script — auto-installs modules and creates the deployable package |
+| `deploy.ps1` | Deploy script — uploads ZIP and creates or updates the policy definition without deleting assignments |
 | `README.md` | Step-by-step deployment instructions |
 
 ## End-to-End Workflow
@@ -56,11 +56,13 @@ The downloaded bundle contains:
 # 2. Extract and create the deployable package (on your workstation, NOT the target VM)
 #    Use pwsh (PowerShell 7+), NOT powershell (Windows PowerShell 5.1)
 cd <extracted-folder>
-pwsh ./package.ps1   # Installs modules, creates output/<Name>.zip, runs local test
+pwsh ./package.ps1   # Installs modules and creates output/<Name>.zip
+# Optional local evaluation (does not apply configuration):
+# Test-GuestConfigurationPackage -Path './output/<Name>.zip'
 
 # 3. Upload to Azure Blob Storage and create the policy definition
 #    (requires Az module: Install-Module Az)
-pwsh ./deploy.ps1    # Authenticates, uploads ZIP, creates policy definition
+pwsh ./deploy.ps1 -StorageAccountName 'YourStorageAccount'
 
 # 4. Assign the policy from the Azure Portal
 #    Navigate to: Azure Portal → Policy → Definitions → search "MC-<Name>"
@@ -70,6 +72,10 @@ pwsh ./deploy.ps1    # Authenticates, uploads ZIP, creates policy definition
 #    $def = Get-AzPolicyDefinition -Name 'MC-<Name>'
 #    New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition $def -Scope '/subscriptions/<sub-id>'
 ```
+
+Deployment defaults to **Microsoft Entra ID** and an HTTPS-only read SAS that expires in **6 days**. Renew it before expiry by re-running deployment. Existing-account uploads require Storage Blob Data Contributor at account scope, not permission to list keys. Shared Key and longer-lived SAS tokens are explicit opt-ins: `-StorageAuthMode SharedKey -SasExpiryDays 1095`. See [permissions and renewal](docs/PERMISSIONS.md).
+
+To update a release, increment the builder version and repeat packaging/deployment. The script updates URI and hash together and preserves the policy definition ID. Policies target individual Azure VMs and Arc-enabled servers; VMSS is not supported. For AuditAndSet, create the policy assignment with a managed identity, grant the role listed in `roleDefinitionIds`, and create remediation for existing machines (see the generated README).
 
 ## Supported Resources
 

@@ -39,10 +39,20 @@ param(
     [ValidateSet('Audit', 'AuditAndSet')]
     [string]$Mode = 'Audit',
 
+    [ValidateSet('UserDelegation', 'SharedKey')]
+    [string]$StorageAuthMode = 'UserDelegation',
+
+    [ValidateRange(1, 1095)]
+    [int]$SasExpiryDays = 6,
+
     [switch]$SkipLogin
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($StorageAuthMode -eq 'UserDelegation' -and $SasExpiryDays -gt 6) {
+    throw 'User delegation SAS lifetime must be 1-6 days (the delegation key limit is 7 days). Use explicit SharedKey mode only if your storage policy permits it.'
+}
 
 # ─── Ensure $env:TEMP is set (Linux doesn't set it by default) ───────────────
 if (-not $env:TEMP) { $env:TEMP = [System.IO.Path]::GetTempPath() }
@@ -75,9 +85,22 @@ if ($ConfigPath) {
     }
 
     $configName = $mofFile.BaseName
+    $packageVersion = '1.0.0'
+    $metadataPath = Join-Path $configDir "$configName.metaconfig.json"
+    if (Test-Path -LiteralPath $metadataPath) {
+        $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+        if ($metadata.Type -cnotin @('Audit', 'AuditAndSet') -or $metadata.Version -notmatch '^\d+\.\d+\.\d+$') {
+            throw 'Package metadata must contain a valid Type and Version. Re-export the bundle from the builder.'
+        }
+        if ($PSBoundParameters.ContainsKey('Mode') -and $Mode -cne $metadata.Type) {
+            throw '-Mode conflicts with package metadata. Re-export the bundle with the intended mode.'
+        }
+        $Mode = $metadata.Type
+        $packageVersion = $metadata.Version
+    }
 
     # ─── Auto-detect mode from config JSON or policy.json (if -Mode not explicitly passed) ───
-    if (-not $PSBoundParameters.ContainsKey('Mode')) {
+    if (-not $PSBoundParameters.ContainsKey('Mode') -and -not (Test-Path -LiteralPath $metadataPath)) {
         $modeDetected = $false
 
         # 1. Try config JSON files (tool output)
@@ -92,7 +115,9 @@ if ($ConfigPath) {
                     $modeDetected = $true
                     break
                 }
-            } catch { }
+            } catch {
+                throw "Invalid config JSON in '$($cjf.Name)': $($_.Exception.Message)"
+            }
         }
 
         # 2. Fallback: infer from policy.json effect
@@ -169,6 +194,7 @@ if ($ConfigPath) {
         -Configuration $mofFile.FullName `
         -Path $outputDir `
         -Type $packageType `
+        -Version $packageVersion `
         -Force
 
     # ─── Fix module structure (Azure GC requires versioned paths) ─────────────
@@ -271,6 +297,9 @@ if (-not $SkipLogin) {
         Write-Host '[AUTH] Connecting to Azure...' -ForegroundColor Cyan
         Connect-AzAccount
         $context = Get-AzContext
+        if (-not $context -or -not $context.Subscription.Id) {
+            throw 'No Azure subscription context found. Run Connect-AzAccount and select a subscription.'
+        }
     } else {
         Write-Host "[AUTH] Using existing Azure context: $($context.Account.Id)" -ForegroundColor Gray
     }
@@ -289,6 +318,7 @@ Write-Host ''
 # ─── Storage Account ─────────────────────────────────────────────────────────
 
 $storageRg = if ($StorageResourceGroup) { $StorageResourceGroup } elseif ($ResourceGroupName) { $ResourceGroupName } else { "MC-Packages-$($subId.Substring(0,8))" }
+$useExistingAccount = $StorageAccountName -and $StorageAuthMode -eq 'UserDelegation'
 
 if (-not $StorageAccountName) {
     $StorageAccountName = "mcpkgs$($subId.Substring(0,8).ToLower() -replace '[^a-z0-9]','')"
@@ -297,8 +327,16 @@ if (-not $StorageAccountName) {
 
 Write-Host '[STORAGE] Setting up storage...' -ForegroundColor Cyan
 
-$storage = Get-AzStorageAccount | Where-Object { $_.StorageAccountName -eq $StorageAccountName } | Select-Object -First 1
-if (-not $storage) {
+$storage = $null
+if ($useExistingAccount) {
+    Write-Host "   Using existing storage with Microsoft Entra ID: $StorageAccountName" -ForegroundColor Gray
+} elseif ($StorageResourceGroup -or $ResourceGroupName) {
+    $storage = Get-AzStorageAccount -ResourceGroupName $storageRg -ErrorAction Stop |
+        Where-Object { $_.StorageAccountName -eq $StorageAccountName }
+} else {
+    $storage = Get-AzStorageAccount -ErrorAction Stop | Where-Object { $_.StorageAccountName -eq $StorageAccountName } | Select-Object -First 1
+}
+if (-not $storage -and -not $useExistingAccount) {
     $rg = Get-AzResourceGroup -Name $storageRg -ErrorAction SilentlyContinue
     if (-not $rg) {
         Write-Host "   Creating resource group: $storageRg" -ForegroundColor Gray
@@ -316,9 +354,22 @@ if (-not $storage) {
     Write-Host "   Using existing storage: $StorageAccountName (in $($storage.ResourceGroupName))" -ForegroundColor Gray
 }
 
-$storageCtx = $storage.Context
+if ($StorageAuthMode -eq 'UserDelegation') {
+    $storageCtx = New-AzStorageContext -StorageAccountName $StorageAccountName -UseConnectedAccount -Environment $context.Environment.Name
+} else {
+    if ($storage.AllowSharedKeyAccess -eq $false) {
+        throw 'This storage account disables Shared Key access. Use -StorageAuthMode UserDelegation.'
+    }
+    Write-Warning 'SharedKey mode explicitly uses an account key. Prefer UserDelegation where possible.'
+    $storageKey = (Get-AzStorageAccountKey -ResourceGroupName $storage.ResourceGroupName -Name $StorageAccountName -ErrorAction Stop)[0].Value
+    $storageCtx = New-AzStorageContext -StorageAccountName $StorageAccountName -StorageAccountKey $storageKey -Environment $context.Environment.Name
+}
 
-$container = Get-AzStorageContainer -Name $ContainerName -Context $storageCtx -ErrorAction SilentlyContinue
+try {
+    $container = Get-AzStorageContainer -Context $storageCtx -ErrorAction Stop | Where-Object { $_.Name -eq $ContainerName }
+} catch {
+    throw 'Cannot access blob storage. UserDelegation requires Storage Blob Data Contributor at storage-account scope (including delegation-key permission) and network access. No Shared Key fallback was attempted.'
+}
 if (-not $container) {
     Write-Host "   Creating container: $ContainerName" -ForegroundColor Gray
     New-AzStorageContainer -Name $ContainerName -Context $storageCtx -Permission Off | Out-Null
@@ -336,16 +387,20 @@ Set-AzStorageBlobContent `
     -Context $storageCtx `
     -Force | Out-Null
 
-$sasExpiry = (Get-Date).AddYears(3)
+$sasStart = (Get-Date).ToUniversalTime().AddMinutes(-5)
+$sasExpiry = (Get-Date).ToUniversalTime().AddDays($SasExpiryDays)
 $sasToken = New-AzStorageBlobSASToken `
     -Container $ContainerName `
     -Blob $blobName `
     -Permission r `
+    -Protocol HttpsOnly `
+    -StartTime $sasStart `
     -ExpiryTime $sasExpiry `
     -Context $storageCtx `
     -FullUri
 
 Write-Host "   [OK] Uploaded with SAS URL (expires $($sasExpiry.ToString('yyyy-MM-dd')))" -ForegroundColor Green
+Write-Warning "Renew the SAS and re-run this script before $($sasExpiry.ToString('yyyy-MM-dd HH:mm')) UTC. Expired URLs prevent package downloads."
 Write-Host ''
 
 # ─── Create Policy Definition ────────────────────────────────────────────────
@@ -354,15 +409,6 @@ Write-Host '[POLICY] Creating policy definition...' -ForegroundColor Cyan
 
 $policyName = "MC-$configName"
 $displayName = "Machine Configuration: $configName"
-
-# Remove existing definition if it exists (clean redeploy)
-$existingDef = $null
-try { $existingDef = Get-AzPolicyDefinition -Name $policyName -ErrorAction SilentlyContinue 2>$null } catch {}
-if ($existingDef) {
-    Write-Host "   [CLEANUP] Removing existing policy definition: $policyName" -ForegroundColor Yellow
-    Remove-AzPolicyDefinition -Name $policyName -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 5
-}
 
 # Check for policy.json next to the package or in the config folder
 $policyJsonPath = $null
@@ -383,19 +429,18 @@ if (-not $policyJsonPath -or -not (Test-Path $policyJsonPath)) {
 if (Test-Path $policyJsonPath) {
     Write-Host "   Using policy.json from: $policyJsonPath" -ForegroundColor Gray
     $policyContent = Get-Content $policyJsonPath -Raw
-    $policyContent = $policyContent -replace '\{\{contentUri\}\}', $sasToken
-    $policyContent = $policyContent -replace '\{\{contentHash\}\}', $hash
+    $policyContent = $policyContent.Replace('"{{contentUri}}"', (ConvertTo-Json -InputObject $sasToken -Compress))
+    $policyContent = $policyContent.Replace('"{{contentHash}}"', (ConvertTo-Json -InputObject $hash -Compress))
+    $null = $policyContent | ConvertFrom-Json
 
-    $tempPolicy = Join-Path $env:TEMP "$configName-policy.json"
-    $policyContent | Set-Content $tempPolicy -Encoding UTF8
-
+    # Upsert in place so existing assignments keep their definition ID.
     $policyDef = New-AzPolicyDefinition `
         -Name $policyName `
         -DisplayName $displayName `
-        -Policy $tempPolicy `
+        -Policy $policyContent `
+        -SubscriptionId $subId `
         -Mode 'Indexed'
 
-    Remove-Item $tempPolicy -ErrorAction SilentlyContinue
 } else {
     Write-Host "   [WARN] No policy.json found — policy.json is required to create the definition." -ForegroundColor Yellow
     Write-Host "   Place a policy.json alongside the package and re-run, or use -ConfigPath instead." -ForegroundColor Yellow
@@ -403,7 +448,7 @@ if (Test-Path $policyJsonPath) {
 }
 
 Write-Host "   [OK] Policy definition created: $($policyDef.Name)" -ForegroundColor Green
-Write-Host "   ID: $($policyDef.PolicyDefinitionId)" -ForegroundColor Gray
+Write-Host "   ID: $($policyDef.Id)" -ForegroundColor Gray
 Write-Host ''
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
@@ -415,13 +460,20 @@ Write-Host ''
 Write-Host "  Package:           $configName" -ForegroundColor White
 Write-Host "  Hash:              $($hash.Substring(0,16))..." -ForegroundColor White
 Write-Host "  Storage:           $StorageAccountName/$ContainerName/$blobName" -ForegroundColor White
-Write-Host "  Policy Definition: $($policyDef.PolicyDefinitionId)" -ForegroundColor White
+Write-Host "  Policy Definition: $($policyDef.Id)" -ForegroundColor White
 Write-Host ''
 Write-Host '  Policy definition created. Assign it from Azure Portal.' -ForegroundColor Green
 Write-Host ''
 Write-Host '  Or assign via PowerShell:'
 Write-Host "     `$def = Get-AzPolicyDefinition -Name '$policyName'" -ForegroundColor Gray
-Write-Host "     New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition `$def -Scope '/subscriptions/$subId'" -ForegroundColor Gray
+if ($Mode -eq 'AuditAndSet') {
+    Write-Host "     `$assignment = New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition `$def -Scope '/subscriptions/$subId' -Location '$Location' -IdentityType SystemAssigned" -ForegroundColor Gray
+    Write-Host "     New-AzRoleAssignment -ObjectId `$assignment.Identity.PrincipalId -RoleDefinitionId '088ab73d-1256-47ae-bea9-9de8e7131f31' -Scope '/subscriptions/$subId'" -ForegroundColor Gray
+    Write-Host '     # Allow identity/RBAC propagation before starting remediation.' -ForegroundColor Gray
+    Write-Host "     Start-AzPolicyRemediation -Name '$configName-remediation' -PolicyAssignmentId `$assignment.Id" -ForegroundColor Gray
+} else {
+    Write-Host "     New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition `$def -Scope '/subscriptions/$subId'" -ForegroundColor Gray
+}
 Write-Host ''
 Write-Host '  VM Prerequisites — assign this built-in initiative at subscription level:' -ForegroundColor Yellow
 Write-Host '     "Deploy prerequisites to enable Guest Configuration policies on virtual machines"' -ForegroundColor Yellow

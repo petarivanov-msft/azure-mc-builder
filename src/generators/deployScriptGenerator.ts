@@ -1,10 +1,5 @@
 import { ConfigurationState } from '../types';
-
-/** Sanitise a DSC identifier (config name). Must match [a-zA-Z_][a-zA-Z0-9_]* */
-function sanitiseIdentifier(value: string): string {
-  const cleaned = value.replace(/[^a-zA-Z0-9_]/g, '');
-  return /^[a-zA-Z_]/.test(cleaned) ? cleaned : `_${cleaned}`;
-}
+import { assertValidIdentifiers } from '../utils/configuration';
 
 // Helper: produce a PS Write-Host line that shows a literal dollar sign.
 // Inside a double-quoted PS string the backtick escapes the dollar: `$var
@@ -22,7 +17,8 @@ const DLR = '`$'; // PS escaped dollar
  *   5. Prints next steps: assign from Azure Portal
  */
 export function generateDeployScript(config: ConfigurationState): string {
-  const safeName = sanitiseIdentifier(config.configName);
+  assertValidIdentifiers(config);
+  const safeName = config.configName;
   const isRemediation = config.mode === 'AuditAndSet';
 
   const lines: string[] = [];
@@ -48,6 +44,7 @@ export function generateDeployScript(config: ConfigurationState): string {
 # After completion, assign the policy from the Azure Portal or with:
 #   $def = Get-AzPolicyDefinition -Name 'MC-${safeName}'
 #   New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition $def -Scope '/subscriptions/<sub-id>'
+# For AuditAndSet, follow the README identity/RBAC and remediation steps instead.
 
 #Requires -Version 7.0
 # Requires Az.Accounts, Az.Resources, Az.Storage
@@ -60,6 +57,10 @@ param(
     [string]$ContainerName = 'guestconfiguration',
     [string]$Location = 'uksouth',
     [string]$SubscriptionId,
+    [ValidateSet('UserDelegation', 'SharedKey')]
+    [string]$StorageAuthMode = 'UserDelegation',
+    [ValidateRange(1, 1095)]
+    [int]$SasExpiryDays = 6,
     [switch]$SkipLogin
 )
 
@@ -68,6 +69,10 @@ $ErrorActionPreference = 'Stop'
 function Fail($msg) {
     Write-Error $msg
     exit 1
+}
+
+if ($StorageAuthMode -eq 'UserDelegation' -and $SasExpiryDays -gt 6) {
+    Fail 'User delegation SAS lifetime must be 1-6 days (the delegation key limit is 7 days). Use explicit SharedKey mode only if your storage policy permits it.'
 }
 
 # ─── Az module checks ───────────────────────────────────────────────────────
@@ -87,11 +92,6 @@ $scriptDir  = $PSScriptRoot
 # ─── Locate the deployable ZIP ───────────────────────────────────────────────
 # package.ps1 places it in output\\<configName>.zip
 $zipPath = Join-Path $scriptDir "output\\$configName.zip"
-if (-not (Test-Path $zipPath)) {
-    # Fallback: look for any .zip in output/ or alongside this script
-    $zipPath = Get-ChildItem -Path (Join-Path $scriptDir 'output') -Filter '*.zip' -ErrorAction SilentlyContinue |
-               Select-Object -First 1 -ExpandProperty FullName
-}
 if (-not $zipPath -or -not (Test-Path $zipPath)) {
     Write-Error "No deployable ZIP found. Run package.ps1 first to create output\\$configName.zip"
     exit 1
@@ -160,6 +160,7 @@ Write-Host ''
 # ─── Storage Account ─────────────────────────────────────────────────────────
 
 $storageRg = if ($StorageResourceGroup) { $StorageResourceGroup } elseif ($ResourceGroupName) { $ResourceGroupName } else { "MC-Packages-$($subId.Substring(0,8))" }
+$useExistingAccount = $StorageAccountName -and $StorageAuthMode -eq 'UserDelegation'
 
 if (-not $StorageAccountName) {
     $StorageAccountName = "mcpkgs$($subId.Substring(0,8).ToLower() -replace '[^a-z0-9]','')"
@@ -169,25 +170,28 @@ if (-not $StorageAccountName) {
 Write-Host '[STORAGE] Setting up storage...' -ForegroundColor Cyan
 
 $storage = $null
-if ($StorageResourceGroup -or $ResourceGroupName) {
+if ($useExistingAccount) {
+    Write-Host "   Using existing storage with Microsoft Entra ID: $StorageAccountName" -ForegroundColor Gray
+} elseif ($StorageResourceGroup -or $ResourceGroupName) {
     try {
-        $storage = Get-AzStorageAccount -ResourceGroupName $storageRg -Name $StorageAccountName -ErrorAction SilentlyContinue
+        $storage = Get-AzStorageAccount -ResourceGroupName $storageRg -ErrorAction Stop |
+            Where-Object { $_.StorageAccountName -eq $StorageAccountName }
     } catch {
         Fail "Failed to query storage account '$StorageAccountName' in RG '$storageRg'. Check permissions. Details: $($_.Exception.Message)"
     }
 } else {
     try {
-        $matches = Get-AzStorageAccount | Where-Object { $_.StorageAccountName -eq $StorageAccountName }
+        $storageMatches = @(Get-AzStorageAccount -ErrorAction Stop | Where-Object { $_.StorageAccountName -eq $StorageAccountName })
     } catch {
         Fail "Failed to list storage accounts. Check permissions. Details: $($_.Exception.Message)"
     }
-    if ($matches.Count -gt 1) {
+    if ($storageMatches.Count -gt 1) {
         Fail "Multiple storage accounts named '$StorageAccountName' found. Specify -ResourceGroupName or -StorageResourceGroup."
     }
-    $storage = $matches | Select-Object -First 1
+    $storage = $storageMatches | Select-Object -First 1
 }
 
-if (-not $storage) {
+if (-not $storage -and -not $useExistingAccount) {
     $rg = Get-AzResourceGroup -Name $storageRg -ErrorAction SilentlyContinue
     if (-not $rg) {
         Write-Host "   Creating resource group: $storageRg" -ForegroundColor Gray
@@ -213,9 +217,22 @@ if (-not $storage) {
     Write-Host "   Using existing storage: $StorageAccountName" -ForegroundColor Gray
 }
 
-$storageCtx = $storage.Context
+if ($StorageAuthMode -eq 'UserDelegation') {
+    $storageCtx = New-AzStorageContext -StorageAccountName $StorageAccountName -UseConnectedAccount -Environment $context.Environment.Name
+} else {
+    if ($storage.AllowSharedKeyAccess -eq $false) {
+        Fail 'This storage account disables Shared Key access. Use -StorageAuthMode UserDelegation.'
+    }
+    Write-Warning 'SharedKey mode explicitly uses an account key. Prefer UserDelegation where possible.'
+    $storageKey = (Get-AzStorageAccountKey -ResourceGroupName $storage.ResourceGroupName -Name $StorageAccountName -ErrorAction Stop)[0].Value
+    $storageCtx = New-AzStorageContext -StorageAccountName $StorageAccountName -StorageAccountKey $storageKey -Environment $context.Environment.Name
+}
 
-$container = Get-AzStorageContainer -Name $ContainerName -Context $storageCtx -ErrorAction SilentlyContinue
+try {
+    $container = Get-AzStorageContainer -Context $storageCtx -ErrorAction Stop | Where-Object { $_.Name -eq $ContainerName }
+} catch {
+    Fail 'Cannot access blob storage. UserDelegation requires Storage Blob Data Contributor at storage-account scope (including delegation-key permission) and network access. No Shared Key fallback was attempted.'
+}
 if (-not $container) {
     Write-Host "   Creating container: $ContainerName" -ForegroundColor Gray
     try {
@@ -241,12 +258,15 @@ try {
     Fail "Failed to upload package to storage. Check network and permissions. Details: $($_.Exception.Message)"
 }
 
-$sasExpiry = (Get-Date).AddYears(3)
+$sasStart = (Get-Date).ToUniversalTime().AddMinutes(-5)
+$sasExpiry = (Get-Date).ToUniversalTime().AddDays($SasExpiryDays)
 try {
     $sasToken = New-AzStorageBlobSASToken \`
         -Container $ContainerName \`
         -Blob $blobName \`
         -Permission r \`
+        -Protocol HttpsOnly \`
+        -StartTime $sasStart \`
         -ExpiryTime $sasExpiry \`
         -Context $storageCtx \`
         -FullUri
@@ -255,6 +275,7 @@ try {
 }
 
 Write-Host "   [OK] Uploaded (SAS expires $($sasExpiry.ToString('yyyy-MM-dd')))" -ForegroundColor Green
+Write-Warning "Renew the SAS and re-run this script before $($sasExpiry.ToString('yyyy-MM-dd HH:mm')) UTC. Expired URLs prevent package downloads."
 Write-Host ''
 
 # ─── Create Policy Definition ────────────────────────────────────────────────
@@ -264,37 +285,25 @@ Write-Host '[POLICY] Creating policy definition...' -ForegroundColor Cyan
 $policyName   = "MC-$configName"
 $displayName  = "Machine Configuration: $configName"
 
-# Remove existing definition if present (clean redeploy)
-try {
-    $existingDef = Get-AzPolicyDefinition -Name $policyName -ErrorAction SilentlyContinue 2>$null
-    if ($existingDef) {
-        Write-Host "   [CLEANUP] Removing existing definition: $policyName" -ForegroundColor Yellow
-        Remove-AzPolicyDefinition -Name $policyName -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 5
-    }
-} catch {}
-
 $policyContent = Get-Content $policyJsonPath -Raw
-$policyContent = $policyContent -replace '\\{\\{contentUri\\}\\}',  $sasToken
-$policyContent = $policyContent -replace '\\{\\{contentHash\\}\\}', $hash
+$policyContent = $policyContent.Replace('"{{contentUri}}"', (ConvertTo-Json -InputObject $sasToken -Compress))
+$policyContent = $policyContent.Replace('"{{contentHash}}"', (ConvertTo-Json -InputObject $hash -Compress))
+$null = $policyContent | ConvertFrom-Json
 
-$tempPolicy = Join-Path $env:TEMP "$configName-policy.json"
-$policyContent | Set-Content $tempPolicy -Encoding UTF8
-
+# New-AzPolicyDefinition is an upsert; never delete an assigned definition.
 try {
     $policyDef = New-AzPolicyDefinition \`
         -Name $policyName \`
         -DisplayName $displayName \`
-        -Policy $tempPolicy \`
+        -Policy $policyContent \`
+        -SubscriptionId $subId \`
         -Mode 'Indexed'
 } catch {
     Fail "Failed to create policy definition '$policyName'. Check permissions (Policy Contributor) and policy JSON. Details: $($_.Exception.Message)"
 }
 
-Remove-Item $tempPolicy -ErrorAction SilentlyContinue
-
 Write-Host "   [OK] Policy definition created: $($policyDef.Name)" -ForegroundColor Green
-Write-Host "   ID: $($policyDef.PolicyDefinitionId)" -ForegroundColor Gray
+Write-Host "   ID: $($policyDef.Id)" -ForegroundColor Gray
 Write-Host ''`);
 
   // AuditAndSet remediation instructions
@@ -307,10 +316,10 @@ Write-Host '║  IMPORTANT: AuditAndSet Mode — Remediation Task Required     �
 Write-Host '╚══════════════════════════════════════════════════════════════╝' -ForegroundColor Yellow
 Write-Host ''
 Write-Host '  This config uses AuditAndSet (remediation) mode.' -ForegroundColor Yellow
-Write-Host '  Azure DINE policies have a two-stage deployment:' -ForegroundColor Yellow
+Write-Host '  Existing machines need a remediation task after assignment:' -ForegroundColor Yellow
 Write-Host ''
-Write-Host '  Stage 1: Policy assignment evaluates compliance (Audit only)' -ForegroundColor Gray
-Write-Host '  Stage 2: Remediation task triggers the actual ApplyAndAutoCorrect' -ForegroundColor Gray
+Write-Host '  Give the policy assignment a managed identity and its required role.' -ForegroundColor Gray
+Write-Host '  DINE can deploy automatically for newly created or updated machines.' -ForegroundColor Gray
 Write-Host ''
 Write-Host '  After assigning the policy, you MUST create a remediation task:' -ForegroundColor Yellow
 Write-Host ''
@@ -323,8 +332,8 @@ Write-Host '  Option B — PowerShell:' -ForegroundColor Cyan`);
 
     // Lines with PS $variables — use DLR constant to avoid JS template literal issues
     lines.push(
-      "Write-Host \"    " + DLR + "assignment = Get-AzPolicyAssignment | Where-Object { " + DLR + "_.PolicyDefinitionId -like '*$policyName*' }\" -ForegroundColor Gray",
-      "Write-Host \"    Start-AzPolicyRemediation -Name '$configName-remediation' -PolicyAssignmentId " + DLR + "assignment.PolicyAssignmentId\" -ForegroundColor Gray",
+      "Write-Host \"    " + DLR + "assignment = Get-AzPolicyAssignment -Name 'MyAssignment' -Scope '/subscriptions/$subId'\" -ForegroundColor Gray",
+      "Write-Host \"    Start-AzPolicyRemediation -Name '$configName-remediation' -PolicyAssignmentId " + DLR + "assignment.Id\" -ForegroundColor Gray",
       "Write-Host ''",
     );
   }
@@ -347,7 +356,7 @@ Write-Host "  Config:            $configName" -ForegroundColor White`);
 
   lines.push(`Write-Host "  Hash:              $($hash.Substring(0,16))..." -ForegroundColor White
 Write-Host "  Storage:           $StorageAccountName/$ContainerName/$blobName" -ForegroundColor White
-Write-Host "  Policy Definition: $($policyDef.PolicyDefinitionId)" -ForegroundColor White
+Write-Host "  Policy Definition: $($policyDef.Id)" -ForegroundColor White
 Write-Host ''
 Write-Host '  Policy definition created. Assign it from Azure Portal.' -ForegroundColor Green
 Write-Host '  Note: This script does not install the Guest Configuration extension. If it is already installed, no action is needed.' -ForegroundColor Gray
@@ -363,12 +372,18 @@ Write-Host '  Or assign via PowerShell:'`);
   // More PS $variable lines
   lines.push(
     "Write-Host \"     " + DLR + "def = Get-AzPolicyDefinition -Name '$policyName'\" -ForegroundColor Gray",
-    "Write-Host \"     New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition " + DLR + "def -Scope '/subscriptions/$subId'\" -ForegroundColor Gray",
   );
 
   if (isRemediation) {
     lines.push(
-      "Write-Host \"     Start-AzPolicyRemediation -Name '" + safeName + "-remediation' -PolicyAssignmentId " + DLR + "assignment.PolicyAssignmentId\" -ForegroundColor Gray",
+      "Write-Host \"     " + DLR + "assignment = New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition " + DLR + "def -Scope '/subscriptions/$subId' -Location '$Location' -IdentityType SystemAssigned\" -ForegroundColor Gray",
+      "Write-Host \"     New-AzRoleAssignment -ObjectId " + DLR + "assignment.Identity.PrincipalId -RoleDefinitionId '088ab73d-1256-47ae-bea9-9de8e7131f31' -Scope '/subscriptions/$subId'\" -ForegroundColor Gray",
+      "Write-Host '     # Allow identity/RBAC propagation before starting remediation.' -ForegroundColor Gray",
+      "Write-Host \"     Start-AzPolicyRemediation -Name '" + safeName + "-remediation' -PolicyAssignmentId " + DLR + "assignment.Id\" -ForegroundColor Gray",
+    );
+  } else {
+    lines.push(
+      "Write-Host \"     New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition " + DLR + "def -Scope '/subscriptions/$subId'\" -ForegroundColor Gray",
     );
   }
 

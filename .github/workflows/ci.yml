@@ -25,6 +25,7 @@ jobs:
       - run: npm run lint
 
       - name: Run unit tests
+        shell: bash
         run: npx vitest run --reporter=verbose 2>&1 | tee test-output.txt
 
       - name: Run build

@@ -49,10 +49,13 @@ The downloaded bundle includes PowerShell scripts that, when you run them:
 
 ### SAS Tokens
 
-`deploy.ps1` generates a SAS token for the uploaded package blob with a **3-year expiry**, consistent with the [Microsoft documentation example](https://learn.microsoft.com/en-us/azure/governance/machine-configuration/how-to/develop-custom-package/4-publish-package). Consider:
+Both deployment scripts default to Microsoft Entra ID (`-StorageAuthMode UserDelegation`) and an HTTPS-only, read-only blob SAS with a **6-day expiry**. User delegation keys are limited to seven days; the script caps the SAS at six days to leave room for clock skew. Renew the URL before expiry by re-running deployment. The script prints the expiry warning.
 
-- Storing packages in a storage account with restricted network access
-- Rotating SAS tokens periodically by re-running the deploy script
+For an approved long-lived service SAS, explicitly pass `-StorageAuthMode SharedKey -SasExpiryDays 1095`. This requires permission to list account keys and Shared Key authentication enabled on the account. There is **no silent fallback** from Entra ID to account keys, nor any automatic RBAC grant. Storage-account SAS expiration policies can impose stricter limits.
+
+SAS URLs are read credentials stored in policy definitions. Keep sensitive material out of packages. Network restrictions must still allow target machines to download the package.
+
+See [New-AzStorageBlobSASToken](https://learn.microsoft.com/powershell/module/az.storage/new-azstorageblobsastoken) for the OAuth-context example.
 
 ### Storage Account
 
@@ -68,7 +71,7 @@ For production use, consider additionally enabling:
 
 ### Policy Definitions
 
-Generated Azure Policy definitions are created at subscription scope. They require **Resource Policy Contributor** role. Review the generated `policy.json` before deploying — it defines what the policy evaluates and (for AuditAndSet mode) what it remediates.
+Generated Azure Policy definitions are created or updated **in place** at subscription scope; deployment does not delete definitions or assignments. They require **Resource Policy Contributor** role. Review the generated `policy.json` before deploying — it defines what the policy evaluates and (for AuditAndSet mode) what it remediates. Filled policy JSON is passed in memory, not written to a shared temporary file.
 
 ### AuditAndSet Mode
 

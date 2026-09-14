@@ -70,20 +70,17 @@ This is the most complex generator. It produces either:
 - **Dual resource targeting:** The `if` condition matches both `Microsoft.Compute/virtualMachines` AND `Microsoft.HybridCompute/machines` (Azure Arc), so the same policy works for both VM types.
 - **Conditional ARM resources (DINE only):** The deployment template contains two GC assignment resources — one for VMs, one for Arc — with ARM `condition` expressions that activate the correct one based on `[field('type')]`. This was necessary because VM and Arc GC assignments use different resource type paths.
 - **API version:** Uses `2024-04-05` for GC assignments (required for `assignmentType` support) and `2024-03-01` for VM/extension resources.
-- **parameterHash:** When configurations have parameters (via `configurationParameter`), the `existenceCondition` includes a `parameterHash` check. This ensures the policy detects drift not just in compliance status but also in parameter values.
-- **Extension auto-deployment:** DINE policies include the GC agent extension as a prerequisite resource (`ConfigurationForWindows` or `ConfigurationForLinux`) with `typeHandlerVersion: '1.*'` and auto-upgrade enabled.
+- **Fixed configurations:** Properties stay in the MOF. The builder exposes no policy overrides, so assignment `configurationParameter` is `[]` and the metadata mapping is `{}`. These are distinct Azure contracts, not interchangeable shapes.
+- **Release lifecycle:** The compliance-only existence condition matches the official cmdlet for fixed configurations. `parameterHash` is for policy overrides, not package-content hashes. Deployment replaces URI/hash in metadata and DINE parameters; increment the package/policy version for releases.
+- **Extension prerequisites:** Extension and identity deployment is handled by the built-in prerequisites initiative, not the custom policy.
+- **Scope:** Individual Azure VMs and Arc-enabled servers only. VMSS is not targeted.
 
 ### 4. Metaconfig Generator (`metaconfigGenerator.ts`)
 
 **Input:** Configuration state.
 **Output:** A `metaconfig.json` file.
 
-The metaconfig tells the GC agent on the machine how to behave:
-
-- `Audit` mode → `Type: "Audit"`, `configurationMode: "MonitorOnly"` — observe and report only
-- `AuditAndSet` mode → `Type: "AuditAndSet"`, `configurationMode: "ApplyAndAutoCorrect"` — fix drift automatically
-
-**Important:** The generator emits a full metaconfig (not just the `Type` field). A minimal metaconfig causes some GC agent versions to reject remediation packages. This was discovered and fixed during E2E testing against real Azure VMs.
+The metaconfig contains `Type` (`Audit` or `AuditAndSet`) and `Version`, matching `New-GuestConfigurationPackage`. The package script reads these fields and passes them as cmdlet arguments. The cmdlet generates the actual metaconfig inside the ZIP. Runtime agent settings are service-owned and are not emitted as authored package settings.
 
 ### 5. Package Script Generator (`packageScriptGenerator.ts`)
 
@@ -95,7 +92,9 @@ This is the "glue" script that turns the raw MOF into a deployable package. When
 1. **Detects required DSC modules** by parsing the MOF for `ModuleName` and `ModuleVersion` entries
 2. **Installs them automatically** — both `GuestConfiguration` and the DSC resource modules (e.g. `PSDscResources`, `nxtools`, `SecurityPolicyDsc`)
 3. **Calls `New-GuestConfigurationPackage`** to bundle the MOF + modules into a deployable `.zip`
-4. **Runs a local compliance test** via `Get-GuestConfigurationPackageComplianceStatus` to validate the package before deployment
+4. **Repairs flat module paths** to versioned paths and hashes the final ZIP
+
+Local compliance evaluation is a separate explicit step (`Test-GuestConfigurationPackage`), not automatically run by this script.
 
 The script includes both a dynamic path (MOF parsing) and a static fallback (hardcoded module list) for reliability.
 
@@ -145,17 +144,19 @@ Nine pre-built templates (`src/templates/`) demonstrate realistic configurations
 
 The store (`src/store/configStore.ts`) uses Zustand with:
 
-- **Undo/redo** — full state snapshots stored in `past[]` / `future[]` arrays
+- **Undo/redo** — full snapshots in bounded `past[]` / `future[]` arrays; successive edits to one field coalesce within 750 ms, with focus changes and discrete actions ending the group
 - **LocalStorage persistence** — configuration survives browser refresh
-- **Import/export** — JSON serialisation for sharing configurations
+- **Import/export** — shape-checked JSON with schema defaults applied consistently on import, reload and generation
 - **Validation** — checks for duplicate instance names, missing required properties, and nxFile `Mode` format warnings
 
 ## Build & CI
 
 - **Vite** — development server and production build
-- **Vitest** — 445 unit tests covering all resource schemas, MOF generation, policy generation, validation, escaping edge cases, and GC sandbox restrictions
+- **Vitest** — schema/generator/store regressions plus execution of generated PowerShell and the standalone deployer against isolated mocks (requires PowerShell 7)
 - **E2E validation** — `e2e/generate-test-configs.ts` creates 46 test configurations, `e2e/validate-packages.ps1` compiles them with `New-GuestConfigurationPackage` and runs local compliance tests
 - **GitHub Actions** — CI runs lint + test on every push; Pages workflow deploys the built site
+
+Deployment defaults to Entra ID with a six-day user delegation SAS and no automatic account-key fallback. Shared Key is explicit opt-in. Policy definitions are upserted without deletion; filled policy JSON stays in memory. Script tests cover these behaviors, repeat deployments, literal SAS replacement, errors, and actual ZIP structure/metadata without contacting Azure.
 
 ## Deployment Architecture (Azure Side)
 

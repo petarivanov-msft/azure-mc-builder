@@ -10,6 +10,7 @@ export interface PropertySchema {
   isKey: boolean;
   enumValues?: string[];
   defaultValue?: unknown;
+  allowEmptyString?: boolean;
   placeholder?: string;
   validationPattern?: string;
   validationMessage?: string;
@@ -78,6 +79,7 @@ export interface AppState extends ConfigurationState {
   loadTemplate: (state: ConfigurationState) => void;
   undo: () => void;
   redo: () => void;
+  finishEditing: () => void;
   exportJSON: () => string;
   importJSON: (json: string) => void;
   validate: () => ValidationError[];

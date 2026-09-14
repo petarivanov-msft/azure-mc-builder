@@ -1,5 +1,6 @@
 import { ConfigurationState, ResourceInstance } from '../types';
 import { schemasByName } from '../schemas';
+import { assertValidIdentifiers, getPropertyValue, isMissingProperty } from '../utils/configuration';
 
 /** Escape a string value for MOF format.
  *  MOF string literals use double-quote delimiters.
@@ -89,7 +90,7 @@ function generateResourceBlock(
 
   // User-configured properties
   for (const propSchema of schema.properties) {
-    const value = resource.properties[propSchema.name];
+    const value = getPropertyValue(resource, propSchema);
     if (value === undefined || value === null) continue;
 
     // Skip empty strings ONLY if the property is not required/key
@@ -148,6 +149,7 @@ export const GC_UNSUPPORTED_CLASSES = new Set([
 
 /** Validate a config before MOF generation. Throws on fatal issues. */
 export function validateConfig(config: ConfigurationState): string[] {
+  assertValidIdentifiers(config);
   const warnings: string[] = [];
 
   for (const resource of config.resources) {
@@ -167,10 +169,9 @@ export function validateConfig(config: ConfigurationState): string[] {
 
     // Check required/key properties are present
     for (const propSchema of schema.properties) {
-      const hasDefault = propSchema.defaultValue !== undefined;
-      if ((propSchema.required || propSchema.isKey) && !hasDefault) {
-        const value = resource.properties[propSchema.name];
-        if (value === undefined || value === null) {
+      const value = getPropertyValue(resource, propSchema);
+      if (propSchema.required || propSchema.isKey) {
+        if (isMissingProperty(value, propSchema)) {
           throw new Error(
             `Required property "${propSchema.name}" is missing for resource ` +
             `"[${schema.resourceName}]${resource.instanceName}". ` +
@@ -179,10 +180,8 @@ export function validateConfig(config: ConfigurationState): string[] {
         }
       }
 
-      // Validate enum values (skip comma-separated multi-values like "Domain,Private")
-      if (propSchema.enumValues && resource.properties[propSchema.name] !== undefined) {
-        const value = String(resource.properties[propSchema.name]);
-        const parts = value.includes(',') ? value.split(',').map(s => s.trim()) : [value];
+      if (propSchema.enumValues && value !== undefined && value !== null && value !== '') {
+        const parts = Array.isArray(value) ? value.map(String) : [String(value)];
         for (const part of parts) {
           if (!propSchema.enumValues.includes(part)) {
             throw new Error(

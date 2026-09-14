@@ -14,6 +14,8 @@ npm run lint     # ESLint
 npm run build    # Production build
 ```
 
+PowerShell 7 (`pwsh`) is required for `npm test`. Script regression tests execute both deployment entry points and generated package scripts against isolated mock modules; they never contact Azure or install modules. Real DSC package evaluation remains in the OS-specific CI E2E jobs.
+
 ## Architecture Overview
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a deep dive. The short version:

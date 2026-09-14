@@ -1,5 +1,6 @@
 import { ConfigurationState } from '../types';
 import { schemasByName } from '../schemas';
+import { assertValidIdentifiers } from '../utils/configuration';
 
 /** Collect unique modules used by the configuration's resources */
 function getUniqueModules(config: ConfigurationState): { name: string; version: string }[] {
@@ -15,6 +16,7 @@ function getUniqueModules(config: ConfigurationState): { name: string; version: 
 
 /** Generate README.md for the package bundle */
 export function generateReadme(config: ConfigurationState): string {
+  assertValidIdentifiers(config);
   const isWindows = config.platform === 'Windows';
   const modules = getUniqueModules(config);
   const moduleListStr = modules.map(m => `${m.name} v${m.version}`).join(', ');
@@ -38,9 +40,10 @@ ${config.description ? `\n${config.description}\n` : ''}
 |------|-------------|
 | \`${config.configName}.mof\` | Compiled MOF configuration (what the MC agent evaluates) |
 | \`${config.configName}.ps1\` | PowerShell DSC Configuration script (source, for reference) |
-| \`${config.configName}.metaconfig.json\` | MC agent behavior (reference copy — package.ps1 embeds this automatically) |
+| \`${config.configName}.metaconfig.json\` | Package Type and Version, read by package.ps1 and passed to the official packaging cmdlet |
 | \`policy.json\` | Azure Policy definition (AuditIfNotExists or DeployIfNotExists) |
 | \`package.ps1\` | Helper script — creates deployable package |
+| \`deploy.ps1\` | Uploads the package and creates or updates the policy definition in place |
 | \`README.md\` | This file |
 
 ## Quick Start
@@ -50,7 +53,7 @@ ${config.description ? `\n${config.description}\n` : ''}
 - PowerShell 7.x — run \`pwsh\`, not \`powershell\` ([install](https://learn.microsoft.com/powershell/scripting/install/installing-powershell))
 - Az PowerShell module (\`Install-Module Az -Scope CurrentUser\`) for upload and policy steps
 - Azure subscription with Resource Policy Contributor role
-- Storage account for hosting packages
+- Storage account for hosting packages, with Storage Blob Data Contributor at account scope
 
 > **Author packages on your workstation**, not on target VMs. PowerShell 7 is cross-platform — you can build ${isWindows ? 'Windows' : 'Linux'} packages from any OS.
 
@@ -61,20 +64,22 @@ pwsh ./package.ps1
 \`\`\`
 
 This installs \`GuestConfiguration\` and the required DSC modules (${modules.map(m => `\`${m.name}\``).join(', ')}), then creates a deployable .zip from the pre-generated MOF.
+The official cmdlet writes the packaged metaconfig using the Type and Version supplied by \`package.ps1\`. Change the builder configuration and re-export the bundle to update these values together with the policy.
 
 ### 2. Upload to Azure Blob Storage
 
-The container can stay private — the SAS token provides read access for the GC agent.
+Recommended: run \`pwsh ./deploy.ps1 -StorageAccountName 'YourStorageAccount'\`. It uses Microsoft Entra ID without listing account keys, uploads the exact package, and fills both policy placeholders. Existing-account uploads do not require permission to list storage accounts.
+The container stays private. By default the read-only user delegation SAS expires in **6 days**; renew it and re-run deployment before expiry. There is no automatic Shared Key fallback.
+For an explicitly approved long-lived service SAS, use \`-StorageAuthMode SharedKey -SasExpiryDays 1095\`. This requires account-key access and Shared Key authentication enabled. Storage SAS-expiration policies may impose a shorter limit.
+
+Manual upload:
 
 \`\`\`powershell
-$ctx = (Get-AzStorageAccount -ResourceGroupName 'myRG' -Name 'mystorageaccount').Context
+$ctx = New-AzStorageContext -StorageAccountName 'YourStorageAccount' -UseConnectedAccount
 
-Set-AzStorageBlobContent -Container 'guestconfiguration' \\
-  -File '.\\output\\${config.configName}.zip' -Context $ctx
+Set-AzStorageBlobContent -Container 'guestconfiguration' -File '.\\output\\${config.configName}.zip' -Blob '${config.configName}.zip' -Context $ctx
 
-$uri = New-AzStorageBlobSASToken -Container 'guestconfiguration' \\
-  -Blob '${config.configName}.zip' -Permission r \\
-  -ExpiryTime (Get-Date).AddYears(3) -Context $ctx -FullUri
+$uri = New-AzStorageBlobSASToken -Container 'guestconfiguration' -Blob '${config.configName}.zip' -Permission r -Protocol HttpsOnly -StartTime (Get-Date).AddMinutes(-5) -ExpiryTime (Get-Date).AddDays(6) -Context $ctx -FullUri
 \`\`\`
 
 ### 3. Get the Content Hash
@@ -96,9 +101,21 @@ New-AzPolicyDefinition -Name 'MC-${config.configName}' -Policy '.\\policy.json' 
 
 \`\`\`powershell
 $def = Get-AzPolicyDefinition -Name 'MC-${config.configName}'
-New-AzPolicyAssignment -Name '${config.configName}' -PolicyDefinition $def \\
-  -Scope '/subscriptions/<subscription-id>'
+${config.mode === 'AuditAndSet'
+    ? `$assignment = New-AzPolicyAssignment -Name '${config.configName}' -PolicyDefinition $def -Scope '/subscriptions/<subscription-id>' -Location 'uksouth' -IdentityType SystemAssigned
+New-AzRoleAssignment -ObjectId $assignment.Identity.PrincipalId -RoleDefinitionId '088ab73d-1256-47ae-bea9-9de8e7131f31' -Scope '/subscriptions/<subscription-id>'
+Start-AzPolicyRemediation -Name '${config.configName}-remediation' -PolicyAssignmentId $assignment.Id`
+    : `New-AzPolicyAssignment -Name '${config.configName}' -PolicyDefinition $def -Scope '/subscriptions/<subscription-id>'`}
 \`\`\`
+
+${config.mode === 'AuditAndSet' ? 'Creating the role assignment requires role-assignment write permissions; allow identity/RBAC propagation before starting remediation. The portal can guide you through these steps instead.\n' : ''}
+### Updating a Release
+
+Increment the version in the builder, re-export, then run \`package.ps1\` and \`deploy.ps1\` again. Deployment uses a content-addressed blob name and updates the existing definition without deleting assignments. Both the content URI and SHA256 hash are replaced, including DINE deployment parameters.
+
+Fixed values stay in the MOF, not in policy parameter overrides. Metadata \`configurationParameter\` is an object mapping; the assignment property is an array. The compliance-only existence condition matches the official cmdlet for configurations without policy parameters; a parameterHash is not a package-content hash.
+
+These policies target individual Azure VMs and Arc-enabled servers, not VM scale sets.
 
 ## Azure Prerequisites
 

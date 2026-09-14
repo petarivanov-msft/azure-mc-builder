@@ -131,7 +131,7 @@ describe('policyGenerator', () => {
       expect(gcAssignment.properties.guestConfiguration.configurationParameter).toEqual([]);
     });
 
-    it('emits configurationParameter entries for resources with properties', () => {
+    it('does not turn fixed MOF properties into policy overrides', () => {
       const config = makeConfig({
         mode: 'AuditAndSet',
         resources: [
@@ -150,11 +150,8 @@ describe('policyGenerator', () => {
         r.type === 'Microsoft.Compute/virtualMachines/providers/guestConfigurationAssignments'
       );
       const params = gcAssignment.properties.guestConfiguration.configurationParameter;
-      expect(params.length).toBe(2);
-      expect(params[0].name).toBe('[Registry]TestKey;ValueName');
-      expect(params[0].value).toBe('MyVal');
-      expect(params[1].name).toBe('[Registry]TestKey;ValueData');
-      expect(params[1].value).toBe('Hello');
+      expect(params).toEqual([]);
+      expect(policy.properties.parameters).toEqual({});
     });
 
     it('uses simple complianceStatus existenceCondition (matches MS cmdlet)', () => {
@@ -195,6 +192,8 @@ describe('policyGenerator', () => {
       expect(gc.name).toBe('Foo');
       expect(gc.version).toBe('2.0.0');
       expect(gc.contentType).toBe('Custom');
+      expect(gc.configurationParameter).toEqual({});
+      expect(Array.isArray(gc.configurationParameter)).toBe(false);
     });
 
     it('includes Arc machine support in if condition', () => {
@@ -242,17 +241,19 @@ describe('policyGenerator', () => {
       }
     });
 
-    it('DINE policy contains GC assignment resources for VM, Arc, and VMSS', () => {
+    it('DINE deployments target exactly the same resource types as the if condition', () => {
       const policy = generatePolicyJson(makeConfig({
         mode: 'AuditAndSet',
         resources: [{ id: '1', schemaName: 'Registry', instanceName: 'R1', properties: { Key: 'HKLM:\\Test', ValueName: 'V' }, dependsOn: [] }],
       })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
-      expect(resources.length).toBe(3);
+      expect(resources.length).toBe(2);
       const types = resources.map((r: any) => r.type);
       expect(types).toContain('Microsoft.Compute/virtualMachines/providers/guestConfigurationAssignments');
       expect(types).toContain('Microsoft.HybridCompute/machines/providers/guestConfigurationAssignments');
-      expect(types).toContain('Microsoft.Compute/virtualMachineScaleSets/providers/guestConfigurationAssignments');
+      expect(types).not.toContain('Microsoft.Compute/virtualMachineScaleSets/providers/guestConfigurationAssignments');
+      const targets = policy.properties.policyRule.if.anyOf.map((c: any) => c.allOf[0].equals);
+      expect(types.map((t: string) => t.replace('/providers/guestConfigurationAssignments', ''))).toEqual(targets);
     });
 
     it('Audit policy targets correct OS for Linux', () => {
@@ -265,20 +266,37 @@ describe('policyGenerator', () => {
       expect(osMatch.like).toBe('Linux*');
     });
 
-    it('configurationParameter includes all resource parameters', () => {
+    it('does not serialize arrays, key properties or booleans into overrides', () => {
       const policy = generatePolicyJson(makeConfig({
         mode: 'AuditAndSet',
         resources: [
-          { id: '1', schemaName: 'Registry', instanceName: 'R1', properties: { Key: 'HKLM:\\A', ValueName: 'V1', ValueType: 'Dword', ValueData: ['1'], Ensure: 'Present' }, dependsOn: [] },
+          { id: '1', schemaName: 'Registry', instanceName: 'R1', properties: { Key: 'HKLM:\\A', ValueName: 'V1', ValueType: 'Dword', ValueData: ['1'], Ensure: 'Present', Force: false }, dependsOn: [] },
           { id: '2', schemaName: 'Registry', instanceName: 'R2', properties: { Key: 'HKLM:\\B', ValueName: 'V2', ValueType: 'String', ValueData: ['test'] }, dependsOn: ['1'] },
         ],
       })) as any;
       const resources = policy.properties.policyRule.then.details.deployment.properties.template.resources;
       const vmResource = resources.find((r: any) => r.type?.includes('virtualMachines/providers'));
       const configParam = vmResource.properties.guestConfiguration.configurationParameter;
-      expect(configParam.length).toBeGreaterThan(0);
-      expect(configParam.some((p: any) => p.name.includes('[Registry]R1'))).toBe(true);
-      expect(configParam.some((p: any) => p.name.includes('[Registry]R2'))).toBe(true);
+      expect(configParam).toEqual([]);
+      expect(JSON.stringify(policy)).not.toContain('HKLM');
+    });
+
+    it.each(['Audit', 'AuditAndSet'] as const)('keeps release metadata current in %s mode', mode => {
+      const oldPolicy = generatePolicyJson(makeConfig({ mode })) as any;
+      const newPolicy = generatePolicyJson(makeConfig({ mode, version: '2.1.0' })) as any;
+      const gc = newPolicy.properties.metadata.guestConfiguration;
+      expect(newPolicy.properties.metadata.version).toBe('2.1.0');
+      expect(gc.version).toBe('2.1.0');
+      expect(gc.contentUri).toBe('{{contentUri}}');
+      expect(gc.contentHash).toBe('{{contentHash}}');
+      // Fixed configs match the official cmdlet: parameterHash is only for overrides.
+      expect(newPolicy.properties.policyRule.then.details.existenceCondition)
+        .toEqual(oldPolicy.properties.policyRule.then.details.existenceCondition);
+      if (mode === 'AuditAndSet') {
+        for (const resource of newPolicy.properties.policyRule.then.details.deployment.properties.template.resources) {
+          expect(resource.properties.guestConfiguration.version).toBe('2.1.0');
+        }
+      }
     });
   });
 });

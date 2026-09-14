@@ -21,7 +21,7 @@ No. The `New-GuestConfigurationPackage` cmdlet bundles everything into the .zip 
 
 ### What's the metaconfig.json file?
 
-It tells the MC agent how to behave — specifically, whether to run in Audit or AuditAndSet mode. The builder generates this automatically based on your mode selection.
+It contains package `Type` (`Audit` or `AuditAndSet`) and `Version`. `package.ps1` reads these values and passes them to `New-GuestConfigurationPackage`, which creates the metaconfig inside the package. Runtime agent settings are not authored here. Re-export the bundle when changing mode or version so the policy and package stay consistent.
 
 ### Can I use custom DSC resources?
 
@@ -83,6 +83,24 @@ There's a built-in initiative that covers #1 and #2: *"Deploy prerequisites to e
 ### What's the contentHash in the policy for?
 
 Integrity verification. When the MC agent downloads the package, it computes the SHA256 hash and compares it to the hash in the policy definition. If they don't match, the assignment fails with `GuestConfigurationAssignmentValidationFailed`. Always regenerate the hash when you update a package.
+
+### How do I update an existing policy?
+
+Increment the builder version, download a new bundle, rebuild the package and run `deploy.ps1`. The script uploads to a hash-suffixed blob name, updates URI/hash metadata (and DINE deployment parameters), and upserts the policy definition without deleting it. Existing assignments retain the definition ID. Follow the [documented policy lifecycle](https://learn.microsoft.com/azure/governance/machine-configuration/how-to/create-policy-definition#policy-lifecycle).
+
+For fixed configurations, the official cmdlet uses a compliance-only existence condition. `parameterHash` checks policy overrides, not package versions; adding it without parameters is not an update mechanism.
+
+### Why is configurationParameter an object in metadata but an array in the assignment?
+
+These are different contracts. Metadata maps policy parameter names to DSC properties (`{}` when none are exposed). The assignment resource takes name/value overrides (`[]` here). Fixed resource values are already in the MOF and must not be copied into the override array.
+
+### Why does the deployment SAS expire after six days?
+
+The default uses Microsoft Entra ID and a user delegation SAS, which has a short lifetime. Re-run deployment before the printed expiry. Shared-key-disabled storage works on this path. For approved long-lived service SAS deployments, opt in with `-StorageAuthMode SharedKey -SasExpiryDays 1095`; see [permissions](PERMISSIONS.md).
+
+### Are VM scale sets supported?
+
+Not by these generated policies. They target individual Azure VMs and Arc-enabled servers only; there is no unreachable VMSS deployment branch.
 
 ### What are "Reasons" in compliance reports?
 

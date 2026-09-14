@@ -12,7 +12,7 @@ export const registrySchema: ResourceSchema = {
   category: 'File & Package',
   properties: [
     { name: 'Key', description: 'Registry key path (e.g., HKLM:\\SOFTWARE\\...)', type: 'string', required: true, isKey: true, placeholder: 'HKLM:\\SOFTWARE\\MyApp', validationPattern: '^(HKLM|HKCU|HKEY_LOCAL_MACHINE|HKEY_CURRENT_USER):\\\\', validationMessage: 'Registry key must start with HKLM:\\ or HKCU:\\ (e.g. HKLM:\\SOFTWARE\\Policies\\...)' },
-    { name: 'ValueName', description: 'Registry value name (empty string for default value)', type: 'string', required: true, isKey: true },
+    { name: 'ValueName', description: 'Registry value name (empty string for default value)', type: 'string', required: true, isKey: true, allowEmptyString: true },
     { name: 'ValueData', description: 'Value data (array for MultiString type)', type: 'string[]', required: false, isKey: false },
     { name: 'ValueType', description: 'Registry value type. Casing: Dword/Qword (lowercase w)', type: 'string', required: false, isKey: false, enumValues: ['String', 'Binary', 'Dword', 'Qword', 'MultiString', 'ExpandString'] },
     { name: 'Ensure', description: 'Present or Absent', type: 'string', required: false, isKey: false, enumValues: ['Present', 'Absent'], defaultValue: 'Present' },

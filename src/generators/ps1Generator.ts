@@ -1,5 +1,7 @@
 import { ConfigurationState, ResourceInstance } from '../types';
 import { schemasByName } from '../schemas';
+import { getPropertyValue } from '../utils/configuration';
+import { validateConfig } from './mofGenerator';
 
 /** Sanitise a string for safe embedding inside PowerShell single-quoted literals.
  *  Single-quoted strings in PS don't interpret variables or subexpressions,
@@ -53,17 +55,11 @@ function formatPs1DependsOn(resource: ResourceInstance, allResources: ResourceIn
   return `@(${deps.join(', ')})`;
 }
 
-/** Sanitise a DSC identifier (config name, instance name, module name).
- *  Must match [a-zA-Z_][a-zA-Z0-9_]* — strip anything else. */
-function sanitiseIdentifier(value: string): string {
-  const cleaned = value.replace(/[^a-zA-Z0-9_]/g, '');
-  return /^[a-zA-Z_]/.test(cleaned) ? cleaned : `_${cleaned}`;
-}
-
 /** Generate PowerShell DSC Configuration script */
 export function generatePs1(config: ConfigurationState): string {
+  validateConfig(config);
   const lines: string[] = [];
-  const safeName = sanitiseIdentifier(config.configName);
+  const safeName = config.configName;
 
   // Collect all unique modules used by resources in this configuration
   const moduleMap = new Map<string, string>();
@@ -88,8 +84,9 @@ export function generatePs1(config: ConfigurationState): string {
     lines.push(`        ${schema.resourceName} '${sanitisePs1String(resource.instanceName)}' {`);
 
     for (const propSchema of schema.properties) {
-      const value = resource.properties[propSchema.name];
-      if (value === undefined || value === null || value === '') continue;
+      const value = getPropertyValue(resource, propSchema);
+      if (value === undefined || value === null) continue;
+      if (value === '' && !propSchema.required && !propSchema.isKey) continue;
       if (Array.isArray(value) && value.length === 0) continue;
 
       const formatted = formatPs1Value(value, propSchema.type);

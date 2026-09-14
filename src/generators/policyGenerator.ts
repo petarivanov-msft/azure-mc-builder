@@ -1,4 +1,5 @@
 import { ConfigurationState } from '../types';
+import { assertValidIdentifiers } from '../utils/configuration';
 
 /**
  * Generate Azure Policy JSON for Machine Configuration.
@@ -53,27 +54,8 @@ function generateAuditThen(configName: string): object {
   };
 }
 
-/** Build configurationParameter array from resource properties */
-function buildConfigurationParameters(config: ConfigurationState): Array<{ name: string; value: string }> {
-  const params: Array<{ name: string; value: string }> = [];
-  for (const resource of config.resources) {
-    for (const [propName, propValue] of Object.entries(resource.properties)) {
-      if (propValue !== undefined && propValue !== null && propValue !== '') {
-        const value = Array.isArray(propValue) ? JSON.stringify(propValue) : String(propValue);
-        params.push({
-          name: `[${resource.schemaName}]${resource.instanceName};${propName}`,
-          value,
-        });
-      }
-    }
-  }
-  return params;
-}
-
 /** Generate DeployIfNotExists 'then' block (matches New-GuestConfigurationPolicy -Mode ApplyAndAutoCorrect) */
 function generateDeployThen(config: ConfigurationState): object {
-  const configParams = buildConfigurationParameters(config);
-
   // Guest Configuration Resource Contributor — matches MS cmdlet output (least privilege)
   const gcResourceContributorRole = '/providers/Microsoft.Authorization/roleDefinitions/088ab73d-1256-47ae-bea9-9de8e7131f31';
 
@@ -84,7 +66,8 @@ function generateDeployThen(config: ConfigurationState): object {
       contentUri: "[parameters('contentUri')]",
       contentHash: "[parameters('contentHash')]",
       assignmentType: 'ApplyAndAutoCorrect',
-      configurationParameter: configParams.length > 0 ? configParams : [],
+      // Values are already in the MOF. No policy overrides are exposed by this builder.
+      configurationParameter: [],
     },
   };
 
@@ -139,15 +122,6 @@ function generateDeployThen(config: ConfigurationState): object {
                 condition: "[equals(toLower(parameters('type')), toLower('Microsoft.HybridCompute/machines'))]",
                 properties: gcAssignmentProperties,
               },
-              // VMSS GC assignment
-              {
-                apiVersion: '2024-04-05',
-                type: 'Microsoft.Compute/virtualMachineScaleSets/providers/guestConfigurationAssignments',
-                name: "[concat(parameters('vmName'), '/Microsoft.GuestConfiguration/', parameters('configurationName'))]",
-                location: "[parameters('location')]",
-                condition: "[equals(toLower(parameters('type')), toLower('Microsoft.Compute/virtualMachineScaleSets'))]",
-                properties: gcAssignmentProperties,
-              },
             ],
           },
         },
@@ -158,6 +132,7 @@ function generateDeployThen(config: ConfigurationState): object {
 
 /** Generate Azure Policy JSON for Machine Configuration */
 export function generatePolicyJson(config: ConfigurationState): object {
+  assertValidIdentifiers(config);
   const isWindows = config.platform === 'Windows';
   const isRemediation = config.mode === 'AuditAndSet';
 
@@ -176,6 +151,7 @@ export function generatePolicyJson(config: ConfigurationState): object {
           contentType: 'Custom',
           contentUri: '{{contentUri}}',
           contentHash: '{{contentHash}}',
+          // Metadata is a parameter-name -> DSC-property map, NOT the assignment array.
           configurationParameter: {},
         },
       },

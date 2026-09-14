@@ -200,6 +200,7 @@ foreach ($dir in $configDirs) {
             -Configuration $mofFile `
             -Path $outDir `
             -Type $pkgType `
+            -Version $meta.Version `
             -Force
 
         if (-not $pkg -or -not (Test-Path $pkg.Path)) {

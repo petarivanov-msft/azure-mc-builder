@@ -32,6 +32,12 @@ This role includes:
 |------|-------|-----|
 | **Storage Blob Data Contributor** | Storage account | Upload .zip packages and generate SAS tokens |
 
+The default `UserDelegation` mode uses `New-AzStorageContext -UseConnectedAccount`. Specify `-StorageAccountName` for an existing account: this path performs no management-plane storage-account lookup or ListKeys call. Container-scoped data access alone does not include the account-level delegation-key operation.
+
+Omitting the storage-account name allows the script to discover or create its default account; this additionally needs management-plane read/create permissions. The script never grants itself data-plane roles.
+
+`-StorageAuthMode SharedKey` is an explicit compatibility option, requiring management-plane read/ListKeys permissions and Shared Key access enabled. It is never an automatic fallback.
+
 ### For the managed identity (auto-handled by built-in policies)
 
 The MC agent on VMs needs a system-assigned managed identity to pull packages and report compliance. The built-in initiative handles this, but if you're setting it up manually:
@@ -103,7 +109,7 @@ You need a storage account to host your MC packages. The MC agent downloads pack
 # Create resource group and storage account
 New-AzResourceGroup -Name 'MC-Packages' -Location 'uksouth'
 New-AzStorageAccount -ResourceGroupName 'MC-Packages' -Name 'mcpackagesstore' -Location 'uksouth' -SkuName 'Standard_LRS'
-$ctx = (Get-AzStorageAccount -ResourceGroupName 'MC-Packages' -Name 'mcpackagesstore').Context
+$ctx = New-AzStorageContext -StorageAccountName 'mcpackagesstore' -UseConnectedAccount
 
 # Create a container for packages
 New-AzStorageContainer -Name 'guestconfiguration' -Context $ctx
@@ -111,10 +117,12 @@ New-AzStorageContainer -Name 'guestconfiguration' -Context $ctx
 # Upload a package
 Set-AzStorageBlobContent -Container 'guestconfiguration' -File '.\output\MyConfig.zip' -Blob 'MyConfig.zip' -Context $ctx
 
-# Generate a read-only SAS URL (valid 3 years)
+# Generate an HTTPS-only, read-only user delegation SAS (renew before 6 days)
 $uri = New-AzStorageBlobSASToken -Container 'guestconfiguration' -Blob 'MyConfig.zip' `
-  -Permission r -ExpiryTime (Get-Date).AddYears(3) -Context $ctx -FullUri
+  -Permission r -Protocol HttpsOnly -StartTime (Get-Date).AddMinutes(-5) -ExpiryTime (Get-Date).AddDays(6) -Context $ctx -FullUri
 ```
+
+Re-run deployment before expiry to update the policy URL. For a permitted longer-lived service SAS, explicitly use `-StorageAuthMode SharedKey -SasExpiryDays 1095`; account SAS-expiration policy restrictions still apply.
 
 ## 5. Complete Setup Checklist
 

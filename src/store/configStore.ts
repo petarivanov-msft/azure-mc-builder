@@ -1,11 +1,12 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { AppState, ConfigurationState, ResourceInstance, ValidationError, Platform, ConfigMode } from '../types';
 import { schemasByName } from '../schemas';
+import { getPropertyValue, IDENTIFIER_PATTERN, isMissingProperty, parseConfiguration, VERSION_PATTERN, withResourceDefaults } from '../utils/configuration';
 
 const STORAGE_KEY = 'azure-mc-builder-config';
 const MAX_HISTORY = 50;
+const EDIT_GROUP_MS = 750;
 
 function getDefaultConfig(): ConfigurationState {
   return {
@@ -30,40 +31,24 @@ function extractConfig(state: AppState): ConfigurationState {
 }
 
 function loadFromStorage(): ConfigurationState | null {
+  if (typeof localStorage === 'undefined') return null;
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return null;
-    const parsed = JSON.parse(stored);
-    // Basic shape check — if corrupted, fall back to defaults
-    if (
-      typeof parsed !== 'object' || parsed === null ||
-      typeof parsed.configName !== 'string' ||
-      (parsed.platform !== 'Windows' && parsed.platform !== 'Linux') ||
-      (parsed.mode !== 'Audit' && parsed.mode !== 'AuditAndSet') ||
-      !Array.isArray(parsed.resources)
-    ) {
-      localStorage.removeItem(STORAGE_KEY);
-      return null;
-    }
-
-    // Drop storage if any unknown schemaName is present (stale config)
-    const hasUnknown = parsed.resources.some((r: any) => !r?.schemaName || !schemasByName[r.schemaName]);
-    if (hasUnknown) {
-      localStorage.removeItem(STORAGE_KEY);
-      return null;
-    }
-
-    return parsed;
-  } catch {
-    localStorage.removeItem(STORAGE_KEY);
+    return parseConfiguration(stored);
+  } catch (error) {
+    console.warn('Could not restore saved configuration:', error);
     return null;
   }
 }
 
 function saveToStorage(config: ConfigurationState) {
+  if (typeof localStorage === 'undefined') return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-  } catch { /* ignore */ }
+  } catch (error) {
+    console.warn('Could not save configuration:', error);
+  }
 }
 
 /** Check for circular dependencies using DFS */
@@ -96,30 +81,40 @@ function hasCycle(resources: ResourceInstance[]): boolean {
 
 const initial = loadFromStorage() || getDefaultConfig();
 
-export const useConfigStore = create<AppState>((set, get) => ({
+export const useConfigStore = create<AppState>((set, get) => {
+  let lastEdit: { key: string; at: number } | null = null;
+  const finishEditing = () => { lastEdit = null; };
+  const pushHistory = (editKey?: string) => {
+    const now = Date.now();
+    const state = get();
+    const coalesce = editKey !== undefined && lastEdit?.key === editKey &&
+      now - lastEdit.at < EDIT_GROUP_MS && state.future.length === 0;
+    lastEdit = editKey === undefined ? null : { key: editKey, at: now };
+    if (coalesce) return;
+    set({
+      past: [...state.past.slice(-(MAX_HISTORY - 1)), extractConfig(state)],
+      future: [],
+    });
+  };
+
+  return {
   ...initial,
   selectedResourceId: null,
   past: [],
   future: [],
 
-  // Helper to push state to history before mutation
-  _pushHistory: () => {
-    const state = get();
-    const snapshot = extractConfig(state);
-    set(s => ({
-      past: [...s.past.slice(-(MAX_HISTORY - 1)), snapshot],
-      future: [],
-    }));
-  },
+  finishEditing,
 
   setConfigName: (name: string) => {
-    (get() as any)._pushHistory();
+    if (name === get().configName) return;
+    pushHistory('configName');
     set({ configName: name });
     saveToStorage(extractConfig(get()));
   },
 
   setPlatform: (platform: Platform) => {
-    (get() as any)._pushHistory();
+    if (platform === get().platform) return;
+    pushHistory();
     // Remove resources that don't match the new platform
     const resources = get().resources.filter(r => {
       const schema = schemasByName[r.schemaName];
@@ -130,27 +125,30 @@ export const useConfigStore = create<AppState>((set, get) => ({
   },
 
   setMode: (mode: ConfigMode) => {
-    (get() as any)._pushHistory();
+    if (mode === get().mode) return;
+    pushHistory();
     set({ mode });
     saveToStorage(extractConfig(get()));
   },
 
   setVersion: (version: string) => {
-    (get() as any)._pushHistory();
+    if (version === get().version) return;
+    pushHistory('version');
     set({ version });
     saveToStorage(extractConfig(get()));
   },
 
   setDescription: (desc: string) => {
-    (get() as any)._pushHistory();
+    if (desc === get().description) return;
+    pushHistory('description');
     set({ description: desc });
     saveToStorage(extractConfig(get()));
   },
 
   addResource: (schemaName: string, instanceName: string) => {
-    (get() as any)._pushHistory();
     const schema = schemasByName[schemaName];
     if (!schema) return;
+    pushHistory();
 
     // Initialize with default values
     const properties: Record<string, unknown> = {};
@@ -173,7 +171,7 @@ export const useConfigStore = create<AppState>((set, get) => ({
   },
 
   removeResource: (id: string) => {
-    (get() as any)._pushHistory();
+    pushHistory();
     set(s => ({
       resources: s.resources
         .filter(r => r.id !== id)
@@ -187,7 +185,7 @@ export const useConfigStore = create<AppState>((set, get) => ({
   },
 
   updateResourceProperty: (id: string, property: string, value: unknown) => {
-    (get() as any)._pushHistory();
+    pushHistory(typeof value === 'boolean' ? undefined : `property:${id}:${property}`);
     set(s => ({
       resources: s.resources.map(r =>
         r.id === id ? { ...r, properties: { ...r.properties, [property]: value } } : r
@@ -197,7 +195,7 @@ export const useConfigStore = create<AppState>((set, get) => ({
   },
 
   updateResourceInstanceName: (id: string, name: string) => {
-    (get() as any)._pushHistory();
+    pushHistory(`instanceName:${id}`);
     set(s => ({
       resources: s.resources.map(r =>
         r.id === id ? { ...r, instanceName: name } : r
@@ -207,7 +205,7 @@ export const useConfigStore = create<AppState>((set, get) => ({
   },
 
   updateResourceDependsOn: (id: string, deps: string[]) => {
-    (get() as any)._pushHistory();
+    pushHistory();
     set(s => ({
       resources: s.resources.map(r =>
         r.id === id ? { ...r, dependsOn: deps } : r
@@ -217,7 +215,7 @@ export const useConfigStore = create<AppState>((set, get) => ({
   },
 
   reorderResource: (fromIndex: number, toIndex: number) => {
-    (get() as any)._pushHistory();
+    pushHistory();
     set(s => {
       const resources = [...s.resources];
       const [moved] = resources.splice(fromIndex, 1);
@@ -228,11 +226,12 @@ export const useConfigStore = create<AppState>((set, get) => ({
   },
 
   selectResource: (id: string | null) => {
+    finishEditing();
     set({ selectedResourceId: id });
   },
 
   cloneResource: (id: string) => {
-    (get() as any)._pushHistory();
+    pushHistory();
     const resource = get().resources.find(r => r.id === id);
     if (!resource) return;
 
@@ -254,22 +253,24 @@ export const useConfigStore = create<AppState>((set, get) => ({
   },
 
   resetConfig: () => {
-    (get() as any)._pushHistory();
+    pushHistory();
     const fresh = getDefaultConfig();
     set({ ...fresh, selectedResourceId: null });
     saveToStorage(fresh);
   },
 
   loadTemplate: (state: ConfigurationState) => {
-    (get() as any)._pushHistory();
+    pushHistory();
+    const config = { ...state, resources: state.resources.map(withResourceDefaults) };
     set({
-      ...state,
+      ...config,
       selectedResourceId: null,
     });
-    saveToStorage(state);
+    saveToStorage(config);
   },
 
   undo: () => {
+    finishEditing();
     const { past } = get();
     if (past.length === 0) return;
     const previous = past[past.length - 1];
@@ -284,6 +285,7 @@ export const useConfigStore = create<AppState>((set, get) => ({
   },
 
   redo: () => {
+    finishEditing();
     const { future } = get();
     if (future.length === 0) return;
     const next = future[0];
@@ -303,45 +305,8 @@ export const useConfigStore = create<AppState>((set, get) => ({
 
   importJSON: (json: string) => {
     try {
-      const raw = JSON.parse(json);
-
-      // Schema validation: ensure imported data matches ConfigurationState shape
-      if (typeof raw !== 'object' || raw === null) throw new Error('Root must be an object');
-      if (typeof raw.configName !== 'string') throw new Error('Missing or invalid configName');
-      if (raw.platform !== 'Windows' && raw.platform !== 'Linux') throw new Error('platform must be "Windows" or "Linux"');
-      if (raw.mode !== 'Audit' && raw.mode !== 'AuditAndSet') throw new Error('mode must be "Audit" or "AuditAndSet"');
-      if (typeof raw.version !== 'string') throw new Error('Missing or invalid version');
-      if (typeof raw.description !== 'string' && raw.description !== undefined) throw new Error('description must be a string');
-      if (!Array.isArray(raw.resources)) throw new Error('resources must be an array');
-
-      // Validate each resource
-      for (let i = 0; i < raw.resources.length; i++) {
-        const r = raw.resources[i];
-        if (typeof r !== 'object' || r === null) throw new Error(`resources[${i}] must be an object`);
-        if (typeof r.id !== 'string') throw new Error(`resources[${i}].id must be a string`);
-        if (typeof r.schemaName !== 'string') throw new Error(`resources[${i}].schemaName must be a string`);
-        if (!schemasByName[r.schemaName]) throw new Error(`resources[${i}].schemaName is not a valid resource type`);
-        if (typeof r.instanceName !== 'string') throw new Error(`resources[${i}].instanceName must be a string`);
-        if (typeof r.properties !== 'object' || r.properties === null) throw new Error(`resources[${i}].properties must be an object`);
-        if (!Array.isArray(r.dependsOn)) throw new Error(`resources[${i}].dependsOn must be an array`);
-      }
-
-      const config: ConfigurationState = {
-        configName: String(raw.configName),
-        platform: raw.platform,
-        mode: raw.mode,
-        version: String(raw.version),
-        description: raw.description ? String(raw.description) : '',
-        resources: raw.resources.map((r: Record<string, unknown>) => ({
-          id: String(r.id),
-          schemaName: String(r.schemaName),
-          instanceName: String(r.instanceName),
-          properties: r.properties as Record<string, unknown>,
-          dependsOn: (r.dependsOn as unknown[]).map(String),
-        })),
-      };
-
-      (get() as any)._pushHistory();
+      const config = parseConfiguration(json);
+      pushHistory();
       set({ ...config, selectedResourceId: null });
       saveToStorage(config);
     } catch (e) {
@@ -354,11 +319,14 @@ export const useConfigStore = create<AppState>((set, get) => ({
     const errors: ValidationError[] = [];
 
     // Config name validation
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(state.configName)) {
+    if (!IDENTIFIER_PATTERN.test(state.configName)) {
       errors.push({
         level: 'error',
         message: 'Configuration name must be a valid identifier (letters, numbers, underscores; cannot start with a number)',
       });
+    }
+    if (!VERSION_PATTERN.test(state.version)) {
+      errors.push({ level: 'error', message: 'Version must have the format major.minor.patch (e.g. 1.0.0)' });
     }
 
     // "No resources" is handled by the empty-state UI, not the validation bar
@@ -393,7 +361,7 @@ export const useConfigStore = create<AppState>((set, get) => ({
       }
 
       // Unique + valid instance names
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(resource.instanceName)) {
+      if (!IDENTIFIER_PATTERN.test(resource.instanceName)) {
         errors.push({
           level: 'error',
           resourceId: resource.id,
@@ -412,9 +380,8 @@ export const useConfigStore = create<AppState>((set, get) => ({
       // Required + key properties
       for (const prop of schema.properties) {
         if (prop.required || prop.isKey) {
-          const val = resource.properties[prop.name];
-          const emptyArray = Array.isArray(val) && val.length === 0;
-          if (val === undefined || val === null || val === '' || emptyArray) {
+          const val = getPropertyValue(resource, prop);
+          if (isMissingProperty(val, prop)) {
             errors.push({
               level: 'error',
               resourceId: resource.id,
@@ -426,7 +393,7 @@ export const useConfigStore = create<AppState>((set, get) => ({
 
         // Enum validation
         if (prop.enumValues) {
-          const val = resource.properties[prop.name];
+          const val = getPropertyValue(resource, prop);
           if (val !== undefined && val !== null && val !== '') {
             if (prop.type === 'string[]') {
               const arr = Array.isArray(val) ? val : [val];
@@ -455,7 +422,7 @@ export const useConfigStore = create<AppState>((set, get) => ({
       // Pattern validation
       for (const prop of schema.properties) {
         if (prop.validationPattern) {
-          const val = resource.properties[prop.name];
+          const val = getPropertyValue(resource, prop);
           if (val !== undefined && val !== null && val !== '') {
             const re = new RegExp(prop.validationPattern);
             if (!re.test(String(val))) {
@@ -499,4 +466,5 @@ export const useConfigStore = create<AppState>((set, get) => ({
   },
 
   getSnapshot: () => extractConfig(get()),
-}));
+  };
+});

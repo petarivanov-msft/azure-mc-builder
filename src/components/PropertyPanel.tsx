@@ -2,6 +2,7 @@ import React from 'react';
 import { Input, Select, Label, Checkbox, Textarea, Divider, Badge } from '@fluentui/react-components';
 import { useConfigStore } from '../store/configStore';
 import { schemasByName } from '../schemas';
+import { getPropertyValue, isMissingProperty } from '../utils/configuration';
 
 export const PropertyPanel: React.FC = () => {
   const { resources, selectedResourceId, updateResourceProperty, updateResourceInstanceName, updateResourceDependsOn } = useConfigStore();
@@ -26,8 +27,8 @@ export const PropertyPanel: React.FC = () => {
   const optionalProps = schema.properties.filter(p => !p.required);
 
   const renderProperty = (prop: typeof schema.properties[0]) => {
-    const value = resource.properties[prop.name];
-    const isEmpty = value === undefined || value === null || value === '';
+    const value = getPropertyValue(resource, prop);
+    const isEmpty = isMissingProperty(value, prop);
     const showRequired = prop.required && isEmpty;
 
     // Regex validation
@@ -154,7 +155,7 @@ export const PropertyPanel: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '16px 20px' }}>
+    <div onBlur={useConfigStore.getState().finishEditing} style={{ padding: '16px 20px' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
         <Badge appearance="filled" color="brand" size="large">{schema.resourceName}</Badge>
