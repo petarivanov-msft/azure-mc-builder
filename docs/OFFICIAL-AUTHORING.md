@@ -27,6 +27,8 @@ Evaluation also explicitly rejects `DscConfigurationExecutionFailed` and require
 The worker can return a noncompliant-shaped report after a catastrophic error; that is not valid drift.
 
 Versions are pinned in `scripts/toolchain.lock.json`. Resource versions must match the catalog or export fails.
+Az modules are imported at process-global scope so their nested Autorest modules see the pinned Accounts version,
+not a newer transitive copy. An incompatible already-loaded Accounts module is rejected; use a fresh process.
 Run `package.ps1 -RestoreTools` to explicitly restore from PSGallery into `.modules`. `MC_MODULE_CACHE` can
 select a reusable cache. Module installations outside that cache are not upgraded.
 GuestConfiguration has a shared worker directory: a file lock serializes operations using the same cache.

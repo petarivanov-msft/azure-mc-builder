@@ -58,6 +58,21 @@ if (($document | ConvertTo-Json -Depth 100) -match 'virtualMachineScaleSets') { 
 if ($document.properties.policyRule.then.effect -ne '${mode === 'Audit' ? 'auditIfNotExists' : 'deployIfNotExists'}') { throw 'Unexpected official policy effect' }
 `);
         run('verify-policy.ps1');
+        if (mode === 'Audit') {
+          writeFileSync(join(dir, 'verify-publishing-tools.ps1'), `
+$ErrorActionPreference = 'Stop'
+$module = Import-Module (Join-Path $PSScriptRoot 'McBuilder.psm1') -Force -PassThru
+& $module {
+    param($root)
+    $project = Read-McProject $root
+    $null = Initialize-McTools $project -Azure -RestoreTools
+    foreach ($name in $project.Lock.azure.Keys) {
+        if ((Get-Module $name).Version.ToString() -ne $project.Lock.azure[$name]) { throw "Unpinned publishing dependency: $name" }
+    }
+} $PSScriptRoot
+`);
+          run('verify-publishing-tools.ps1');
+        }
         if (mode === 'AuditAndSet') {
           writeFileSync(join(dir, 'reset-fixture.ps1'), platform === 'Windows'
             ? "Remove-ItemProperty -LiteralPath 'HKLM:\\SOFTWARE\\MCBuilderVerification' -Name 'AuditAndSet' -ErrorAction Stop"

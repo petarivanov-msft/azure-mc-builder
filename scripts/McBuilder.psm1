@@ -88,8 +88,13 @@ function Initialize-McTools {
     }
     Import-Module (Join-Path $cache "GuestConfiguration/$($Project.Lock.guestConfiguration)/GuestConfiguration.psd1") -Force
     if ($Azure) {
+        $loadedAccounts = Get-Module Az.Accounts
+        if ($loadedAccounts -and $loadedAccounts.Version.ToString() -ne $Project.Lock.azure['Az.Accounts']) {
+            throw 'An incompatible Az.Accounts is already loaded. Start a fresh PowerShell process with the locked toolchain.'
+        }
         foreach ($name in @('Az.Accounts','Az.Storage','Az.Resources')) {
-            Import-Module (Join-Path $cache "$name/$($Project.Lock.azure[$name])/$name.psd1") -ErrorAction Stop
+            # Autorest submodules search the global session, not this module's private scope.
+            Import-Module (Join-Path $cache "$name/$($Project.Lock.azure[$name])/$name.psd1") -Global -ErrorAction Stop
         }
     }
     [pscustomobject]@{ Cache = $cache; CompilerVersion = ($required.PSDesiredStateConfiguration -replace '-.*$', '') }
