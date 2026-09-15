@@ -1,7 +1,7 @@
 import { ConfigurationState, ResourceInstance } from '../types';
 import { schemasByName } from '../schemas';
 import { getPropertyValue } from '../utils/configuration';
-import { validateConfig } from './mofGenerator';
+import { validateConfig } from '../utils/resourceValidation';
 
 /** Sanitise a string for safe embedding inside PowerShell single-quoted literals.
  *  Single-quoted strings in PS don't interpret variables or subexpressions,

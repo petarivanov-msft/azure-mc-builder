@@ -1,6 +1,14 @@
 export type Platform = 'Windows' | 'Linux';
 export type ConfigMode = 'Audit' | 'AuditAndSet';
 
+export interface ProjectSettings {
+  schemaVersion: 2;
+  policyId: string;
+  definitionName: string;
+  workflow: 'legacy' | 'official';
+  includeArc: boolean;
+}
+
 export interface PropertySchema {
   name: string;
   displayName?: string;
@@ -38,6 +46,7 @@ export interface ResourceInstance {
 }
 
 export interface ConfigurationState {
+  project?: ProjectSettings;
   configName: string;
   platform: Platform;
   mode: ConfigMode;
@@ -54,6 +63,9 @@ export interface ValidationError {
 }
 
 export interface AppState extends ConfigurationState {
+  project: ProjectSettings;
+  setWorkflow: (workflow: ProjectSettings['workflow']) => void;
+  setIncludeArc: (includeArc: boolean) => void;
   // Selection
   selectedResourceId: string | null;
 

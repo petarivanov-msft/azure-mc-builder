@@ -14,13 +14,19 @@ import { TemplateGallery } from './TemplateGallery';
 import { ErrorBoundary } from './ErrorBoundary';
 import { useConfigStore } from '../store/configStore';
 import { generateBundle } from '../generators';
+import { validateOfficialConfig } from '../generators/officialProjectGenerator';
 
 const App: React.FC = () => {
   const store = useConfigStore();
-  const { configName, platform, mode, resources, version, validate } = store;
-  // validate() uses get() internally — we list fields explicitly for reactivity
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const errors = useMemo(() => validate(), [configName, platform, mode, resources, version, validate]);
+  const { configName, platform, mode, resources, version, description, project, validate } = store;
+  const errors = useMemo(() => {
+    const validation = validate();
+    if (project.workflow === 'official' && resources.length > 0) {
+      try { validateOfficialConfig({ configName, platform, mode, resources, version, description, project }); }
+      catch (error) { validation.push({ level: 'error', message: error instanceof Error ? error.message : String(error) }); }
+    }
+    return validation;
+  }, [configName, platform, mode, resources, version, description, project, validate]);
   const errorCount = errors.filter(e => e.level === 'error').length;
   const warnCount = errors.filter(e => e.level === 'warning').length;
 
@@ -145,7 +151,7 @@ const App: React.FC = () => {
                 onClick={handleDownload}
                 disabled={errorCount > 0 || store.resources.length === 0 || downloading}
               >
-                {downloading ? 'Packaging...' : 'Download ZIP'}
+                {downloading ? 'Packaging...' : project.workflow === 'official' ? 'Download source project' : 'Download ZIP'}
               </Button>
             </Tooltip>
           </div>

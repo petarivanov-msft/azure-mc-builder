@@ -1,8 +1,17 @@
 import type { ConfigurationState, PropertySchema, ResourceInstance } from '../types';
 import { schemasByName } from '../schemas';
+import { v4 as uuidv4, validate as isUuid } from 'uuid';
+import type { ProjectSettings } from '../types';
 
 export const IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 export const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
+
+export function createProjectSettings(definitionName?: string): ProjectSettings {
+  const policyId = uuidv4();
+  const validName = definitionName && /^[A-Za-z0-9_-]{1,64}$/.test(definitionName);
+  return { schemaVersion: 2, policyId, definitionName: validName ? definitionName : policyId,
+    workflow: 'legacy', includeArc: true };
+}
 
 export function assertValidIdentifiers(config: ConfigurationState): void {
   if (!IDENTIFIER_PATTERN.test(config.configName)) {
@@ -19,6 +28,11 @@ export function assertValidIdentifiers(config: ConfigurationState): void {
 }
 
 export function getPropertyValue(resource: ResourceInstance, property: PropertySchema): unknown {
+  if (resource.schemaName === 'ScheduledTask' && property.name === 'AllowStartIfOnBatteries' &&
+      resource.properties.AllowStartIfOnBatteries === undefined &&
+      typeof resource.properties.DisallowStartIfOnBatteries === 'boolean') {
+    return !resource.properties.DisallowStartIfOnBatteries;
+  }
   const value = resource.properties[property.name];
   return value === undefined ? property.defaultValue : value;
 }
@@ -31,6 +45,10 @@ export function isMissingProperty(value: unknown, property: PropertySchema): boo
 
 export function withResourceDefaults(resource: ResourceInstance): ResourceInstance {
   const properties = { ...resource.properties };
+  if (resource.schemaName === 'ScheduledTask' && typeof properties.DisallowStartIfOnBatteries === 'boolean') {
+    properties.AllowStartIfOnBatteries ??= !properties.DisallowStartIfOnBatteries;
+    delete properties.DisallowStartIfOnBatteries;
+  }
   for (const prop of schemasByName[resource.schemaName].properties) {
     if (properties[prop.name] === undefined && prop.defaultValue !== undefined) {
       properties[prop.name] = structuredClone(prop.defaultValue);
@@ -53,6 +71,17 @@ export function parseConfiguration(json: string): ConfigurationState {
   if (typeof raw.version !== 'string') throw new Error('Missing or invalid version');
   if (raw.description !== undefined && typeof raw.description !== 'string') throw new Error('Invalid description');
   if (!Array.isArray(raw.resources)) throw new Error('resources must be an array');
+  let project = createProjectSettings(`MC-${raw.configName}`);
+  if (raw.project !== undefined) {
+    const p = raw.project;
+    if (!isRecord(p) || p.schemaVersion !== 2 || typeof p.policyId !== 'string' || !isUuid(p.policyId) ||
+        typeof p.definitionName !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(p.definitionName) ||
+        (p.workflow !== 'legacy' && p.workflow !== 'official') || typeof p.includeArc !== 'boolean') {
+      throw new Error('Invalid or unsupported project metadata');
+    }
+    project = { schemaVersion: 2, policyId: p.policyId, definitionName: p.definitionName,
+      workflow: p.workflow, includeArc: p.includeArc };
+  }
   const ids = new Set<string>();
   const resources = raw.resources.map((resource: unknown, index: number) => {
     if (!isRecord(resource)) throw new Error(`resources[${index}] must be an object`);
@@ -76,5 +105,6 @@ export function parseConfiguration(json: string): ConfigurationState {
     version: raw.version,
     description: raw.description ?? '',
     resources,
+    project,
   };
 }

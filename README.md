@@ -34,7 +34,23 @@ The downloaded bundle contains:
 | `deploy.ps1` | Deploy script — uploads ZIP and creates or updates the policy definition without deleting assignments |
 | `README.md` | Step-by-step deployment instructions |
 
-## End-to-End Workflow
+## Official authoring preview
+
+Select **Official authoring (preview)** under Export workflow to download a source project.
+The preview uses the real DSC compiler and GuestConfiguration **4.12.0** to create the MOF, package metadata,
+and policy. It does not ship simulated final artifacts. Legacy artifacts remain the default during live qualification.
+
+Run the downloaded `package.ps1 -RestoreTools`, explicitly validate the exact package with `test.ps1`,
+then publish with `deploy.ps1`. Follow the downloaded README: AuditAndSet testing **modifies the test host**
+and requires `-Remediate -DisposableEnvironment -AcknowledgeExecution`. Do not run this on a production workstation.
+
+The module cache is project-local (or `MC_MODULE_CACHE`), dependencies are locked, publication checks a
+package-hash-bound validation receipt, and the tenant/subscription must be supplied explicitly.
+Policy assignment, identity grants and remediation are separate, explicit operations. Arc targeting and the
+4.12.0 auto-remediation parameter are handled explicitly; VM scale sets remain excluded.
+See [official authoring](docs/OFFICIAL-AUTHORING.md) for contracts, verification and migration.
+
+## Legacy End-to-End Workflow
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐

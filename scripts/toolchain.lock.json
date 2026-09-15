@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "guestConfiguration": "4.12.0",
+  "guestConfigurationPatch": {
+    "id": "non-vmss-set-index-guard-1",
+    "originalSha256": "DCEF1578B1F5871E9A570262A80C4AE920D57BD2B3E005C3953C020B592B60CF",
+    "patchedSha256": "A7E3DB8A5DFCA4BE6379A273AF0AE49D8A71310A3C8310715C79A1D7F191DC44"
+  },
+  "compiler": { "Windows": "2.0.7", "Linux": "3.0.0-beta1" },
+  "azure": { "Az.Accounts": "5.3.3", "Az.Storage": "9.1.0", "Az.Resources": "8.1.0" },
+  "resources": {
+    "Windows": { "PSDscResources": "2.12.0.0", "SecurityPolicyDsc": "2.10.0.0", "AuditPolicyDsc": "1.4.0.0", "NetworkingDsc": "9.0.0", "ComputerManagementDsc": "9.2.0" },
+    "Linux": { "nxtools": "1.6.0" }
+  }
+}
