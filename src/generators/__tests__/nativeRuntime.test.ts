@@ -13,6 +13,7 @@ it.skipIf(process.env.MC_NATIVE_RUNTIME !== '1')('builds real official packages 
   const platform = process.platform === 'win32' ? 'Windows' : 'Linux';
   try {
     for (const mode of ['Audit', 'AuditAndSet'] as const) {
+      const markerPath = `/var/tmp/mc-builder-${mode.toLowerCase()}${mode === 'AuditAndSet' ? '-ownership' : ''}`;
       const config: ConfigurationState = {
         configName: `MCVerify${platform}${mode}`, platform, mode, version: '1.0.0',
         description: 'Isolated MC Builder validation: harmless marker only',
@@ -22,7 +23,7 @@ it.skipIf(process.env.MC_NATIVE_RUNTIME !== '1')('builds real official packages 
           properties: platform === 'Windows' ? {
             Key: 'HKLM:\\SOFTWARE\\MCBuilderVerification', ValueName: mode,
             ValueData: ['verified'], ValueType: 'String', Ensure: 'Present',
-          } : { DestinationPath: `/var/tmp/mc-builder-${mode.toLowerCase()}`, Contents: 'verified', Type: 'File', Ensure: 'Present', Mode: '0644', Owner: 'root', Group: 'root' },
+          } : { DestinationPath: markerPath, Contents: 'verified', Type: 'File', Ensure: 'Present', Mode: '0644', Owner: 'root', Group: 'root' },
         }],
       };
       const dir = join(root, config.configName);
@@ -78,7 +79,7 @@ $module = Import-Module (Join-Path $PSScriptRoot 'McBuilder.psm1') -Force -PassT
         if (mode === 'AuditAndSet') {
           writeFileSync(join(dir, 'reset-fixture.ps1'), platform === 'Windows'
             ? "Remove-ItemProperty -LiteralPath 'HKLM:\\SOFTWARE\\MCBuilderVerification' -Name 'AuditAndSet' -ErrorAction Stop"
-            : "Remove-Item -LiteralPath '/var/tmp/mc-builder-auditandset' -ErrorAction Stop");
+            : `Remove-Item -LiteralPath '${markerPath}' -ErrorAction Stop`);
           run('reset-fixture.ps1');
           run('test.ps1', args);
           const drift = JSON.parse(readFileSync(join(dir, 'output', 'validation.json'), 'utf8').replace(/^\uFEFF/, ''));
@@ -96,7 +97,7 @@ $module = Import-Module (Join-Path $PSScriptRoot 'McBuilder.psm1') -Force -PassT
             expect(failed.status).not.toBe(0);
             const rejected = JSON.parse(readFileSync(join(dir, 'output', 'validation.json'), 'utf8').replace(/^\uFEFF/, ''));
             expect(rejected.status).toBe('Failed');
-            expect(existsSync('/var/tmp/mc-builder-auditandset')).toBe(true);
+            expect(existsSync(markerPath)).toBe(true);
             writeFileSync(join(dir, 'Configuration.ps1'), source);
             run('reset-fixture.ps1');
             run('package.ps1');
