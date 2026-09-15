@@ -1,8 +1,9 @@
 import JSZip from 'jszip';
 import type { ConfigurationState } from '../types';
 import { schemasByName } from '../schemas';
-import { assertValidIdentifiers, getPropertyValue, isMissingProperty, withResourceDefaults } from '../utils/configuration';
+import { getPropertyValue, isMissingProperty, withResourceDefaults } from '../utils/configuration';
 import { generatePs1 } from './ps1Generator';
+import { validateConfig } from '../utils/resourceValidation';
 import runtime from '../../scripts/McBuilder.psm1?raw';
 import compiler from '../../scripts/compile.ps1?raw';
 import packager from '../../scripts/package.ps1?raw';
@@ -11,7 +12,7 @@ import deployer from '../../scripts/deploy.ps1?raw';
 import lock from '../../scripts/toolchain.lock.json';
 
 export function validateOfficialConfig(config: ConfigurationState): void {
-  assertValidIdentifiers(config);
+  validateConfig(config);
   if (!config.project || config.project.schemaVersion !== 2) throw new Error('Save or import the project to create its persistent policy identity.');
   if (config.configName.length > 80 || config.description.length > 512) throw new Error('Official authoring allows a name up to 80 characters and description up to 512.');
   if (config.version.length > 30 || config.version.split('.').some(v => Number(v) > 2147483647)) throw new Error('Version components exceed the official tool limit.');

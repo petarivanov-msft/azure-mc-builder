@@ -1,6 +1,6 @@
 import type { ConfigurationState } from '../types';
 import { schemasByName } from '../schemas';
-import { assertValidIdentifiers, getPropertyValue, isMissingProperty } from './configuration';
+import { assertValidIdentifiers, getConditionalRequiredProperties, getPropertyValue, isMissingProperty } from './configuration';
 
 export const GC_UNSUPPORTED_CLASSES = new Set([
   'MSFT_WindowsOptionalFeature', 'MSFT_WindowsPackageCab', 'MSFT_ArchiveResource',
@@ -14,6 +14,12 @@ export function validateConfig(config: ConfigurationState): string[] {
     if (!schema) throw new Error(`Unknown schema "${resource.schemaName}" in resource "${resource.instanceName}"`);
     if (GC_UNSUPPORTED_CLASSES.has(schema.mofClassName)) {
       throw new Error(`Resource "${resource.instanceName}" uses ${schema.mofClassName} (${resource.schemaName}) which is NOT supported in the Azure Guest Configuration agent sandbox. Remove it or use an alternative resource.`);
+    }
+    for (const name of getConditionalRequiredProperties(resource, config.mode)) {
+      const value = resource.properties[name];
+      if (typeof value !== 'string' || value.trim() === '') {
+        throw new Error(`[${resource.instanceName}] nxFile ${name} must be explicit for AuditAndSet with Ensure=Present; nxtools 1.6.0 requires it when creating an item.`);
+      }
     }
     for (const prop of schema.properties) {
       const value = getPropertyValue(resource, prop);

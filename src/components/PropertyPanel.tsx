@@ -2,10 +2,10 @@ import React from 'react';
 import { Input, Select, Label, Checkbox, Textarea, Divider, Badge } from '@fluentui/react-components';
 import { useConfigStore } from '../store/configStore';
 import { schemasByName } from '../schemas';
-import { getPropertyValue, isMissingProperty } from '../utils/configuration';
+import { getConditionalRequiredProperties, getPropertyValue, isMissingProperty } from '../utils/configuration';
 
 export const PropertyPanel: React.FC = () => {
-  const { resources, selectedResourceId, updateResourceProperty, updateResourceInstanceName, updateResourceDependsOn } = useConfigStore();
+  const { resources, mode, selectedResourceId, updateResourceProperty, updateResourceInstanceName, updateResourceDependsOn } = useConfigStore();
   const resource = resources.find(r => r.id === selectedResourceId);
 
   if (!resource) {
@@ -23,13 +23,16 @@ export const PropertyPanel: React.FC = () => {
   if (!schema) return null;
 
   const otherResources = resources.filter(r => r.id !== resource.id);
-  const requiredProps = schema.properties.filter(p => p.required);
-  const optionalProps = schema.properties.filter(p => !p.required);
+  const conditional = getConditionalRequiredProperties(resource, mode);
+  const requiredProps = schema.properties.filter(p => p.required || conditional.includes(p.name));
+  const optionalProps = schema.properties.filter(p => !p.required && !conditional.includes(p.name));
 
   const renderProperty = (prop: typeof schema.properties[0]) => {
     const value = getPropertyValue(resource, prop);
     const isEmpty = isMissingProperty(value, prop);
-    const showRequired = prop.required && isEmpty;
+    const isRequired = prop.required || conditional.includes(prop.name);
+    const showRequired = isRequired &&
+      (isEmpty || (typeof value === 'string' && value.trim() === ''));
 
     // Regex validation
     let patternError = '';
@@ -68,7 +71,7 @@ export const PropertyPanel: React.FC = () => {
       return (
         <div key={prop.name} style={{ marginBottom: '12px' }}>
           <Label size="small" weight="semibold">
-            {prop.name}{prop.required && <span style={{ color: '#c50f1f' }}> *</span>}
+            {prop.name}{isRequired && <span style={{ color: '#c50f1f' }}> *</span>}
           </Label>
           <Select
             value={String(value || '')}
@@ -132,7 +135,7 @@ export const PropertyPanel: React.FC = () => {
     return (
       <div key={prop.name} style={{ marginBottom: '12px' }}>
         <Label size="small" weight="semibold">
-          {prop.name}{prop.required && <span style={{ color: '#c50f1f' }}> *</span>}
+          {prop.name}{isRequired && <span style={{ color: '#c50f1f' }}> *</span>}
         </Label>
         <Input
           type={prop.type === 'integer' ? 'number' : 'text'}
