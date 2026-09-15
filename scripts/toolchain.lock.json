@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "guestConfiguration": "4.12.0",
+  "compiler": { "Windows": "2.0.7", "Linux": "3.0.0-beta1" },
+  "azure": { "Az.Accounts": "5.3.3", "Az.Storage": "9.1.0", "Az.Resources": "8.1.0" },
+  "resources": {
+    "Windows": { "PSDscResources": "2.12.0.0", "SecurityPolicyDsc": "2.10.0.0", "AuditPolicyDsc": "1.4.0.0", "NetworkingDsc": "9.0.0", "ComputerManagementDsc": "9.2.0" },
+    "Linux": { "nxtools": "1.6.0" }
+  }
+}

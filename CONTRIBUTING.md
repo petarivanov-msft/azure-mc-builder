@@ -18,6 +18,19 @@ PowerShell 7 (`pwsh`) is required for `npm test`. Script regression tests execut
 
 ## Architecture Overview
 
+Official authoring has separate native tests. On a disposable Windows/Ubuntu worker:
+
+```powershell
+./scripts/restore.ps1 -CachePath ./modules.local
+$env:MC_NATIVE_TESTS = '1'
+$env:MC_NATIVE_RUNTIME = '1'
+$env:MC_NATIVE_REMEDIATE = '1' # Only on a disposable host: modifies a dedicated marker
+npx vitest run src/generators/__tests__/nativeCompiler.test.ts src/generators/__tests__/nativeRuntime.test.ts --no-file-parallelism
+```
+
+These tests compile every matching-OS catalog resource/template and use the same runtime shipped in the browser
+download. Mock contracts run in the normal suite. See [official authoring](docs/OFFICIAL-AUTHORING.md).
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a deep dive. The short version:
 
 ```

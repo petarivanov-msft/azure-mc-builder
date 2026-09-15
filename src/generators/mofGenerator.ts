@@ -1,6 +1,8 @@
 import { ConfigurationState, ResourceInstance } from '../types';
 import { schemasByName } from '../schemas';
-import { assertValidIdentifiers, getPropertyValue, isMissingProperty } from '../utils/configuration';
+import { getPropertyValue } from '../utils/configuration';
+import { validateConfig } from '../utils/resourceValidation';
+export { validateConfig, GC_UNSUPPORTED_CLASSES } from '../utils/resourceValidation';
 
 /** Escape a string value for MOF format.
  *  MOF string literals use double-quote delimiters.
@@ -135,67 +137,6 @@ function generateOmiDocument(configName: string): string {
     GenerationHost = "AzureMCBuilder";
     Name = "${configName}";
 };`;
-}
-
-// Resources removed from the catalog — these crash or fail in the GC agent sandbox.
-// Kept here only as a safety net in case someone manually references them.
-export const GC_UNSUPPORTED_CLASSES = new Set([
-  'MSFT_WindowsOptionalFeature', // needs DISM module
-  'MSFT_WindowsPackageCab',      // needs DISM module
-  'MSFT_ArchiveResource',        // GC agent cannot resolve class
-  'MSFT_RoleResource',           // WindowsFeature — needs Server Manager
-  'MSFT_GroupResource',          // crashes in GC sandbox (GetConfiguration fails)
-]);
-
-/** Validate a config before MOF generation. Throws on fatal issues. */
-export function validateConfig(config: ConfigurationState): string[] {
-  assertValidIdentifiers(config);
-  const warnings: string[] = [];
-
-  for (const resource of config.resources) {
-    const schema = schemasByName[resource.schemaName];
-    if (!schema) {
-      throw new Error(`Unknown schema "${resource.schemaName}" in resource "${resource.instanceName}"`);
-    }
-
-    // Check for GC-unsupported resources
-    if (GC_UNSUPPORTED_CLASSES.has(schema.mofClassName)) {
-      throw new Error(
-        `Resource "${resource.instanceName}" uses ${schema.mofClassName} (${resource.schemaName}) ` +
-        `which is NOT supported in the Azure Guest Configuration agent sandbox. ` +
-        `Remove it or use an alternative resource.`
-      );
-    }
-
-    // Check required/key properties are present
-    for (const propSchema of schema.properties) {
-      const value = getPropertyValue(resource, propSchema);
-      if (propSchema.required || propSchema.isKey) {
-        if (isMissingProperty(value, propSchema)) {
-          throw new Error(
-            `Required property "${propSchema.name}" is missing for resource ` +
-            `"[${schema.resourceName}]${resource.instanceName}". ` +
-            `This will cause a DSC runtime error on the target VM.`
-          );
-        }
-      }
-
-      if (propSchema.enumValues && value !== undefined && value !== null && value !== '') {
-        const parts = Array.isArray(value) ? value.map(String) : [String(value)];
-        for (const part of parts) {
-          if (!propSchema.enumValues.includes(part)) {
-            throw new Error(
-              `Invalid value "${part}" for property "${propSchema.name}" in resource ` +
-              `"[${schema.resourceName}]${resource.instanceName}". ` +
-              `Valid values: ${propSchema.enumValues.join(', ')}`
-            );
-          }
-        }
-      }
-    }
-  }
-
-  return warnings;
 }
 
 /** Generate full MOF content as string (without BOM) */

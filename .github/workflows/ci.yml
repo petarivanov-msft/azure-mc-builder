@@ -134,10 +134,42 @@ jobs:
   # ─────────────────────────────────────────────────────────
   # Summary — posts a PR comment with test results
   # ─────────────────────────────────────────────────────────
+  official-authoring:
+    name: Official Authoring (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: build-and-test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Compile, package and verify remediation on disposable runner
+        shell: pwsh
+        run: |
+          $env:MC_NATIVE_TESTS = '1'
+          $env:MC_NATIVE_RUNTIME = '1'
+          $env:MC_NATIVE_REMEDIATE = '1'
+          $env:MC_ARTIFACT_DIR = Join-Path $env:RUNNER_TEMP 'mc-official-artifacts'
+          & .\scripts\restore.ps1 -CachePath (Join-Path $env:RUNNER_TEMP 'mc-official-modules')
+          npx vitest run src/generators/__tests__/nativeCompiler.test.ts src/generators/__tests__/nativeRuntime.test.ts --no-file-parallelism
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: official-authoring-${{ matrix.os }}
+          path: ${{ runner.temp }}/mc-official-artifacts
+          retention-days: 5
+
   summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [build-and-test, e2e-linux, e2e-windows]
+    needs: [build-and-test, e2e-linux, e2e-windows, official-authoring]
     if: always()
     permissions:
       pull-requests: write
@@ -151,6 +183,7 @@ jobs:
               { name: 'Build & Unit Tests', result: '${{ needs.build-and-test.result }}' },
               { name: 'E2E Linux Packages', result: '${{ needs.e2e-linux.result }}' },
               { name: 'E2E Windows Packages', result: '${{ needs.e2e-windows.result }}' },
+              { name: 'Official Authoring (Windows + Linux)', result: '${{ needs.official-authoring.result }}' },
             ];
             const icon = r => r === 'success' ? '✅' : r === 'skipped' ? '⏭️' : '❌';
             const allPassed = jobs.every(j => j.result === 'success');
@@ -192,3 +225,4 @@ jobs:
           echo "| Build & Unit Tests | ${{ needs.build-and-test.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| E2E Linux Packages | ${{ needs.e2e-linux.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| E2E Windows Packages | ${{ needs.e2e-windows.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Official Authoring | ${{ needs.official-authoring.result }} |" >> $GITHUB_STEP_SUMMARY

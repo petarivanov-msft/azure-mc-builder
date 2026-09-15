@@ -7,9 +7,11 @@ import { generatePolicyJsonString } from './policyGenerator';
 import { generatePackageScript } from './packageScriptGenerator';
 import { generateDeployScript } from './deployScriptGenerator';
 import { generateReadme } from './readmeGenerator';
+import { generateOfficialProject } from './officialProjectGenerator';
 
 /** Generate a ZIP bundle with all artifacts at the root level */
 export async function generateBundle(config: ConfigurationState): Promise<Blob> {
+  if (config.project?.workflow === 'official') return generateOfficialProject(config);
   const zip = new JSZip();
 
   // MOF file (with BOM)

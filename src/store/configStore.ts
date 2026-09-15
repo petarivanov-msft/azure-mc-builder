@@ -2,14 +2,15 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { AppState, ConfigurationState, ResourceInstance, ValidationError, Platform, ConfigMode } from '../types';
 import { schemasByName } from '../schemas';
-import { getPropertyValue, IDENTIFIER_PATTERN, isMissingProperty, parseConfiguration, VERSION_PATTERN, withResourceDefaults } from '../utils/configuration';
+import { createProjectSettings, getPropertyValue, IDENTIFIER_PATTERN, isMissingProperty, parseConfiguration, VERSION_PATTERN, withResourceDefaults } from '../utils/configuration';
 
 const STORAGE_KEY = 'azure-mc-builder-config';
 const MAX_HISTORY = 50;
 const EDIT_GROUP_MS = 750;
 
-function getDefaultConfig(): ConfigurationState {
+function getDefaultConfig(): ConfigurationState & { project: AppState['project'] } {
   return {
+    project: createProjectSettings(),
     configName: 'MyConfiguration',
     platform: 'Windows',
     mode: 'Audit',
@@ -21,6 +22,7 @@ function getDefaultConfig(): ConfigurationState {
 
 function extractConfig(state: AppState): ConfigurationState {
   return {
+    project: state.project,
     configName: state.configName,
     platform: state.platform,
     mode: state.mode,
@@ -99,11 +101,25 @@ export const useConfigStore = create<AppState>((set, get) => {
 
   return {
   ...initial,
+  project: initial.project ?? createProjectSettings(`MC-${initial.configName}`),
   selectedResourceId: null,
   past: [],
   future: [],
 
   finishEditing,
+
+  setWorkflow: workflow => {
+    if (workflow === get().project.workflow) return;
+    pushHistory();
+    set(s => ({ project: { ...s.project, workflow } }));
+    saveToStorage(extractConfig(get()));
+  },
+
+  setIncludeArc: includeArc => {
+    pushHistory();
+    set(s => ({ project: { ...s.project, includeArc } }));
+    saveToStorage(extractConfig(get()));
+  },
 
   setConfigName: (name: string) => {
     if (name === get().configName) return;
@@ -261,7 +277,8 @@ export const useConfigStore = create<AppState>((set, get) => {
 
   loadTemplate: (state: ConfigurationState) => {
     pushHistory();
-    const config = { ...state, resources: state.resources.map(withResourceDefaults) };
+    const config = { ...state, project: createProjectSettings(),
+      resources: state.resources.map(withResourceDefaults) };
     set({
       ...config,
       selectedResourceId: null,
@@ -307,7 +324,7 @@ export const useConfigStore = create<AppState>((set, get) => {
     try {
       const config = parseConfiguration(json);
       pushHistory();
-      set({ ...config, selectedResourceId: null });
+      set({ ...config, project: config.project!, selectedResourceId: null });
       saveToStorage(config);
     } catch (e) {
       throw new Error(`Invalid configuration file: ${e instanceof Error ? e.message : e}`);

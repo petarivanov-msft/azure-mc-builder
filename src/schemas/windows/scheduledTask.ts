@@ -31,6 +31,6 @@ export const scheduledTaskSchema: ResourceSchema = {
     { name: 'Priority', description: 'Task priority (0 = highest, 10 = lowest)', type: 'integer', required: false, isKey: false, defaultValue: 7 },
     { name: 'Hidden', description: 'Hide task in Task Scheduler UI', type: 'boolean', required: false, isKey: false, defaultValue: false },
     { name: 'RunOnlyIfNetworkAvailable', description: 'Only run when network is available', type: 'boolean', required: false, isKey: false, defaultValue: false },
-    { name: 'DisallowStartIfOnBatteries', description: 'Do not start if on battery power', type: 'boolean', required: false, isKey: false, defaultValue: false },
+    { name: 'AllowStartIfOnBatteries', description: 'Allow the task to start on battery power', type: 'boolean', required: false, isKey: false, defaultValue: true },
   ],
 };

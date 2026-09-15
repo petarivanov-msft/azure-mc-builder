@@ -18,6 +18,15 @@
 
 [CmdletBinding()]
 param(
+    [Parameter(ParameterSetName='Official')]
+    [string]$OfficialProjectPath,
+
+    [string]$TenantId,
+
+    [switch]$RestoreTools,
+
+    [switch]$AllowReleaseUpgrade,
+
     [Parameter(ParameterSetName='FromConfig')]
     [string]$ConfigPath,
 
@@ -49,6 +58,17 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($OfficialProjectPath) {
+    if (-not $TenantId -or -not $SubscriptionId -or -not $StorageAccountName) {
+        throw 'Official authoring requires explicit TenantId, SubscriptionId and StorageAccountName.'
+    }
+    if ($StorageAuthMode -ne 'UserDelegation') { throw 'Official authoring uses Microsoft Entra ID, without Shared Key fallback.' }
+    & (Join-Path $PSScriptRoot 'scripts/deploy.ps1') -ProjectPath $OfficialProjectPath -TenantId $TenantId `
+        -SubscriptionId $SubscriptionId -StorageAccountName $StorageAccountName -ContainerName $ContainerName `
+        -SasExpiryDays $SasExpiryDays -SkipLogin:$SkipLogin -RestoreTools:$RestoreTools -AllowReleaseUpgrade:$AllowReleaseUpgrade
+    return
+}
 
 if ($StorageAuthMode -eq 'UserDelegation' -and $SasExpiryDays -gt 6) {
     throw 'User delegation SAS lifetime must be 1-6 days (the delegation key limit is 7 days). Use explicit SharedKey mode only if your storage policy permits it.'
