@@ -61,6 +61,9 @@ runtime contracts; the **Official Authoring** CI jobs separately enable real com
 Official `deploy.ps1` requires TenantId, SubscriptionId and StorageAccountName. It refuses a mismatching Azure
 context. The caller must provision storage and roles; the runtime never silently creates an account or grants roles.
 It uses Entra ID storage access, an HTTPS-only read SAS valid at most six days, and no Shared Key fallback.
+The optional `-UseAzureCli` reuses an existing CLI login without changing the default subscription. It checks
+the account and token tenant/subscription, uses CLI data-plane operations in user-delegation mode, and passes
+a short-lived ARM token to the same Az policy-upsert path. Tokens are held in process memory, not printed or persisted.
 
 The policy generator receives a persistent GUID, platform, mode, release version and `IncludeVMSS = $false`.
 It uses the cmdlet's returned file path and verifies its content hash against the validated package before upsert.

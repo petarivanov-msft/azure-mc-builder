@@ -140,6 +140,8 @@ pwsh ./deploy.ps1 -RestoreTools -TenantId 'Your-Tenant-ID' -SubscriptionId 'Your
 Publishing uploads the tested bytes, creates an HTTPS-only read SAS (6 days), runs New-GuestConfigurationPolicy,
 checks its hash, and upserts definition **${id}**. Renew before expiry by rerunning deploy, not package.
 Use -SkipLogin only after selecting the exact tenant/subscription. The runtime refuses a different Azure context.
+If already signed in with Azure CLI, -UseAzureCli explicitly reuses that login for storage and obtains a
+short-lived ARM token for the shared Az policy-upsert path. It never changes the CLI default subscription.
 Generated policy JSON contains a read credential: do not commit or publish the output directory.
 
 ## 4. Explicitly assign in a reviewed scope

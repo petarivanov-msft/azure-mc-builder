@@ -70,5 +70,39 @@ $module = Import-Module (Join-Path $ProjectPath 'McBuilder.psm1') -PassThru -For
     function script:Disable-AzContextAutosave { param($Scope) }
     function script:Get-AzContext { @{ Tenant = @{ Id = 'wrong' }; Subscription = @{ Id = 'wrong' } } }
     Throws { Publish-McPackage -ProjectPath $root -TenantId '00000000-0000-0000-0000-000000000001' -SubscriptionId '00000000-0000-0000-0000-000000000002' -StorageAccountName 'test' -SkipLogin } 'context does not match'
+    $script:cliCalls = @()
+    function script:Invoke-McAzureCli {
+        param([string[]]$Arguments)
+        $script:cliCalls += ($Arguments[0..2] -join ' ')
+        Assert ($Arguments -contains '--subscription') 'Every CLI operation must select the requested subscription'
+        if ($Arguments[0] -eq 'account' -and $Arguments[1] -eq 'show') {
+            return @{ tenantId = '00000000-0000-0000-0000-000000000001'; id = '00000000-0000-0000-0000-000000000002'; user = @{ name = 'unit-test' } }
+        }
+        if ($Arguments[1] -eq 'get-access-token') {
+            return @{ tenant = '00000000-0000-0000-0000-000000000001'; subscription = '00000000-0000-0000-0000-000000000002'; accessToken = 'unit-token' }
+        }
+        Assert ($Arguments -contains 'login') 'Storage must use Entra login, not keys'
+        if ($Arguments[2] -eq 'generate-sas') {
+            Assert ($Arguments -contains '--as-user' -and $Arguments -contains '--https-only') 'User delegation HTTPS SAS required'
+            return 'https://example.invalid/package.zip?sig=unit'
+        }
+    }
+    function script:Connect-AzAccount {
+        param($AccessToken,$AccountId,$Tenant,$Subscription,$Scope)
+        Assert ($AccessToken -eq 'unit-token' -and $Scope -eq 'Process') 'Token context must be process-scoped'
+    }
+    function script:Get-AzContext {
+        @{ Tenant = @{ Id = '00000000-0000-0000-0000-000000000001' }; Subscription = @{ Id = '00000000-0000-0000-0000-000000000002' } }
+    }
+    function script:Get-AzPolicyDefinition { param($SubscriptionId,[switch]$Custom) }
+    function script:New-AzPolicyDefinition {
+        param($Name,$SubscriptionId,$Policy)
+        Assert ($Name -eq $project.Config.project.definitionName) 'Keep explicit stable ARM policy name'
+        Assert (($Policy | ConvertFrom-Json).properties.metadata.guestConfiguration.contentHash -eq $hash) 'Publish exact validated hash'
+        @{ Id = "/subscriptions/$SubscriptionId/providers/Microsoft.Authorization/policyDefinitions/$Name" }
+    }
+    $deployment = Publish-McPackage -ProjectPath $root -TenantId '00000000-0000-0000-0000-000000000001' -SubscriptionId '00000000-0000-0000-0000-000000000002' -StorageAccountName 'test' -UseAzureCli
+    Assert ($script:cliCalls.Count -eq 5) 'CLI bridge must validate account/token, create private container, upload and generate SAS'
+    Assert ($deployment.packageHash -eq $hash) 'Deployment result must preserve the validated package hash'
     Write-Output 'Official runtime contract checks passed'
 } $ProjectPath

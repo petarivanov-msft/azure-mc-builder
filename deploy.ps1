@@ -27,6 +27,8 @@ param(
 
     [switch]$AllowReleaseUpgrade,
 
+    [switch]$UseAzureCli,
+
     [Parameter(ParameterSetName='FromConfig')]
     [string]$ConfigPath,
 
@@ -66,7 +68,7 @@ if ($OfficialProjectPath) {
     if ($StorageAuthMode -ne 'UserDelegation') { throw 'Official authoring uses Microsoft Entra ID, without Shared Key fallback.' }
     & (Join-Path $PSScriptRoot 'scripts/deploy.ps1') -ProjectPath $OfficialProjectPath -TenantId $TenantId `
         -SubscriptionId $SubscriptionId -StorageAccountName $StorageAccountName -ContainerName $ContainerName `
-        -SasExpiryDays $SasExpiryDays -SkipLogin:$SkipLogin -RestoreTools:$RestoreTools -AllowReleaseUpgrade:$AllowReleaseUpgrade
+        -SasExpiryDays $SasExpiryDays -SkipLogin:$SkipLogin -RestoreTools:$RestoreTools -AllowReleaseUpgrade:$AllowReleaseUpgrade -UseAzureCli:$UseAzureCli
     return
 }
 

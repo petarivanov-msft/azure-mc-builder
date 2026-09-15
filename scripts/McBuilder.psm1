@@ -301,17 +301,36 @@ function New-McPolicy {
     }
 }
 
+function Invoke-McAzureCli {
+    param([string[]]$Arguments)
+    $output = & az @Arguments --only-show-errors --output json
+    if ($LASTEXITCODE -ne 0) { throw "Azure CLI $($Arguments[0]) $($Arguments[1]) failed (exit $LASTEXITCODE)." }
+    if ($output) { ($output -join "`n") | ConvertFrom-Json }
+}
+
 function Publish-McPackage {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ProjectPath, [Parameter(Mandatory)][guid]$TenantId,
         [Parameter(Mandatory)][guid]$SubscriptionId, [Parameter(Mandatory)][string]$StorageAccountName,
         [string]$ContainerName = 'guestconfiguration', [ValidateRange(1,6)][int]$SasExpiryDays = 6,
-        [switch]$SkipLogin, [switch]$RestoreTools, [switch]$AllowReleaseUpgrade)
+        [switch]$SkipLogin, [switch]$RestoreTools, [switch]$AllowReleaseUpgrade, [switch]$UseAzureCli)
     $project = Read-McProject $ProjectPath
     $build = Assert-McBuild $project -RequireValidation
     $null = Initialize-McTools $project -RestoreTools:$RestoreTools -Azure
     Disable-AzContextAutosave -Scope Process | Out-Null
-    if (-not $SkipLogin) { Connect-AzAccount -Tenant $TenantId -Subscription $SubscriptionId -Scope Process | Out-Null }
+    if ($UseAzureCli) {
+        $account = Invoke-McAzureCli @('account','show','--subscription',$SubscriptionId.ToString())
+        if ($account.tenantId -ne $TenantId.ToString() -or $account.id -ne $SubscriptionId.ToString()) {
+            throw 'Azure CLI account does not match the explicitly requested tenant/subscription.'
+        }
+        $token = Invoke-McAzureCli @('account','get-access-token','--subscription',$SubscriptionId.ToString())
+        if ($token.tenant -ne $TenantId.ToString() -or $token.subscription -ne $SubscriptionId.ToString()) { throw 'Azure CLI token is for a different tenant/subscription.' }
+        # Az.Accounts 5.3.3 accepts an ARM token but has no storage-token parameter.
+        # Reuse CLI auth for blob operations; keep official policy generation/upsert shared.
+        Connect-AzAccount -AccessToken $token.accessToken -AccountId $account.user.name -Tenant $TenantId `
+            -Subscription $SubscriptionId -Scope Process | Out-Null
+        $token = $null
+    } elseif (-not $SkipLogin) { Connect-AzAccount -Tenant $TenantId -Subscription $SubscriptionId -Scope Process | Out-Null }
     $context = Get-AzContext
     if ($null -eq $context -or $context.Tenant.Id -ne $TenantId.ToString() -or $context.Subscription.Id -ne $SubscriptionId.ToString()) {
         throw 'Azure context does not match the explicitly requested tenant/subscription. No Azure writes were performed.'
@@ -324,16 +343,25 @@ function Publish-McPackage {
             throw 'This changes the guest assignment release name. Review and retire old corrective assignments before using -AllowReleaseUpgrade. The definition was not changed.'
         }
     }
-    $storage = New-AzStorageContext -StorageAccountName $StorageAccountName -UseConnectedAccount -Environment $context.Environment.Name
-    $containers = @(Get-AzStorageContainer -Context $storage)
-    if (-not ($containers | Where-Object Name -EQ $ContainerName)) {
-        New-AzStorageContainer -Name $ContainerName -Context $storage -Permission Off | Out-Null
-    }
     $blobName = "$($project.Release)-$($build.Build.packageHash.ToLower()).zip"
-    Set-AzStorageBlobContent -File $build.Path -Container $ContainerName -Blob $blobName -Context $storage -Force | Out-Null
     $expiry = [datetime]::UtcNow.AddDays($SasExpiryDays)
-    $uri = New-AzStorageBlobSASToken -Container $ContainerName -Blob $blobName -Context $storage `
-        -Permission r -Protocol HttpsOnly -StartTime ([datetime]::UtcNow.AddMinutes(-5)) -ExpiryTime $expiry -FullUri
+    if ($UseAzureCli) {
+        $common = @('--account-name',$StorageAccountName,'--auth-mode','login','--subscription',$SubscriptionId.ToString())
+        $null = Invoke-McAzureCli (@('storage','container','create','--name',$ContainerName,'--public-access','off') + $common)
+        $null = Invoke-McAzureCli (@('storage','blob','upload','--container-name',$ContainerName,'--name',$blobName,'--file',$build.Path,'--overwrite','true') + $common)
+        $uri = Invoke-McAzureCli (@('storage','blob','generate-sas','--container-name',$ContainerName,'--name',$blobName,
+            '--permissions','r','--https-only','--as-user','--full-uri','--start',([datetime]::UtcNow.AddMinutes(-5).ToString('yyyy-MM-ddTHH:mm:ssZ')),
+            '--expiry',$expiry.ToString('yyyy-MM-ddTHH:mm:ssZ')) + $common)
+    } else {
+        $storage = New-AzStorageContext -StorageAccountName $StorageAccountName -UseConnectedAccount -Environment $context.Environment.Name
+        $containers = @(Get-AzStorageContainer -Context $storage)
+        if (-not ($containers | Where-Object Name -EQ $ContainerName)) {
+            New-AzStorageContainer -Name $ContainerName -Context $storage -Permission Off | Out-Null
+        }
+        Set-AzStorageBlobContent -File $build.Path -Container $ContainerName -Blob $blobName -Context $storage -Force | Out-Null
+        $uri = New-AzStorageBlobSASToken -Container $ContainerName -Blob $blobName -Context $storage `
+            -Permission r -Protocol HttpsOnly -StartTime ([datetime]::UtcNow.AddMinutes(-5)) -ExpiryTime $expiry -FullUri
+    }
     $policy = New-McPolicy -ProjectPath $project.Root -ContentUri $uri
     $definition = New-AzPolicyDefinition -Name $project.Config.project.definitionName `
         -SubscriptionId $SubscriptionId -Policy (Get-Content -LiteralPath $policy.Path -Raw)

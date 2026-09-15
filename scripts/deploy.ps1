@@ -8,6 +8,7 @@ param(
     [string]$ContainerName = 'guestconfiguration',
     [ValidateRange(1,6)][int]$SasExpiryDays = 6,
     [switch]$SkipLogin,
+    [switch]$UseAzureCli,
     [switch]$RestoreTools,
     [switch]$AllowReleaseUpgrade
 )
