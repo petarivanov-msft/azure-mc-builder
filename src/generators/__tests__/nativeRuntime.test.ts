@@ -17,7 +17,7 @@ it.skipIf(process.env.MC_NATIVE_RUNTIME !== '1')('builds real official packages 
       const config: ConfigurationState = {
         configName: `MCVerify${platform}${mode}`, platform, mode, version: '1.0.0',
         description: 'Isolated MC Builder validation: harmless marker only',
-        project: { ...createProjectSettings(), workflow: 'official', includeArc: true },
+        project: { ...createProjectSettings(), includeArc: true },
         resources: [{ id: 'marker', instanceName: 'Marker', dependsOn: [],
           schemaName: platform === 'Windows' ? 'Registry' : 'nxFile',
           properties: platform === 'Windows' ? {

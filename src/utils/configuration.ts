@@ -15,8 +15,7 @@ export function getConditionalRequiredProperties(resource: ResourceInstance, mod
 export function createProjectSettings(definitionName?: string): ProjectSettings {
   const policyId = uuidv4();
   const validName = definitionName && /^[A-Za-z0-9_-]{1,64}$/.test(definitionName);
-  return { schemaVersion: 2, policyId, definitionName: validName ? definitionName : policyId,
-    workflow: 'legacy', includeArc: true };
+  return { schemaVersion: 2, policyId, definitionName: validName ? definitionName : policyId, includeArc: true };
 }
 
 export function assertValidIdentifiers(config: ConfigurationState): void {
@@ -50,6 +49,7 @@ export function isMissingProperty(value: unknown, property: PropertySchema): boo
 }
 
 export function withResourceDefaults(resource: ResourceInstance): ResourceInstance {
+  if (!Object.hasOwn(schemasByName, resource.schemaName)) throw new Error(`Unknown schema "${resource.schemaName}"`);
   const properties = { ...resource.properties };
   if (resource.schemaName === 'ScheduledTask' && typeof properties.DisallowStartIfOnBatteries === 'boolean') {
     properties.AllowStartIfOnBatteries ??= !properties.DisallowStartIfOnBatteries;
@@ -82,11 +82,11 @@ export function parseConfiguration(json: string): ConfigurationState {
     const p = raw.project;
     if (!isRecord(p) || p.schemaVersion !== 2 || typeof p.policyId !== 'string' || !isUuid(p.policyId) ||
         typeof p.definitionName !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(p.definitionName) ||
-        (p.workflow !== 'legacy' && p.workflow !== 'official') || typeof p.includeArc !== 'boolean') {
+        (p.workflow !== undefined && p.workflow !== 'legacy' && p.workflow !== 'official') || typeof p.includeArc !== 'boolean') {
       throw new Error('Invalid or unsupported project metadata');
     }
-    project = { schemaVersion: 2, policyId: p.policyId, definitionName: p.definitionName,
-      workflow: p.workflow, includeArc: p.includeArc };
+    // Preserve saved policy identity, but never retain the retired export selector.
+    project = { schemaVersion: 2, policyId: p.policyId, definitionName: p.definitionName, includeArc: p.includeArc };
   }
   const ids = new Set<string>();
   const resources = raw.resources.map((resource: unknown, index: number) => {

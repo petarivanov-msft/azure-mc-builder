@@ -4,7 +4,8 @@ Ideas and features for future development, collected from UX testing feedback (M
 
 ## CLI Mode
 `mc-builder export --config config.json --output ./dist` for CI/CD pipeline integration.
-Allow headless generation of MOF/PS1/ZIP from a JSON configuration file, enabling automation-first workflows without requiring the GUI.
+Allow headless generation of source projects from JSON, feeding the existing official PowerShell compiler,
+packager and publisher rather than implementing a second artifact-generation workflow.
 
 ## Git Integration
 Push configurations directly to a repository. Version-control templates. Enable GitOps workflows where configs are reviewed via PRs before deployment.

@@ -32,11 +32,12 @@ This role includes:
 |------|-------|-----|
 | **Storage Blob Data Contributor** | Storage account | Upload .zip packages and generate SAS tokens |
 
-The default `UserDelegation` mode uses `New-AzStorageContext -UseConnectedAccount`. Specify `-StorageAccountName` for an existing account: this path performs no management-plane storage-account lookup or ListKeys call. Container-scoped data access alone does not include the account-level delegation-key operation.
+The publisher uses `New-AzStorageContext -UseConnectedAccount` or explicitly selected Azure CLI user-delegation
+authentication. `-StorageAccountName` is required and identifies an existing account; no ListKeys call is made.
+Container-scoped data access alone does not include the account-level delegation-key operation.
 
-Omitting the storage-account name allows the script to discover or create its default account; this additionally needs management-plane read/create permissions. The script never grants itself data-plane roles.
-
-`-StorageAuthMode SharedKey` is an explicit compatibility option, requiring management-plane read/ListKeys permissions and Shared Key access enabled. It is never an automatic fallback.
+Provision the storage account and permissions separately. The scripts do not create accounts, grant themselves roles,
+or support a Shared Key fallback. Tenant and subscription must be explicit.
 
 ### For the managed identity (auto-handled by built-in policies)
 
@@ -122,7 +123,8 @@ $uri = New-AzStorageBlobSASToken -Container 'guestconfiguration' -Blob 'MyConfig
   -Permission r -Protocol HttpsOnly -StartTime (Get-Date).AddMinutes(-5) -ExpiryTime (Get-Date).AddDays(6) -Context $ctx -FullUri
 ```
 
-Re-run deployment before expiry to update the policy URL. For a permitted longer-lived service SAS, explicitly use `-StorageAuthMode SharedKey -SasExpiryDays 1095`; account SAS-expiration policy restrictions still apply.
+Re-run deployment before expiry to update the policy URL using the same validated package bytes.
+`-SasExpiryDays` accepts one to six days; storage-account expiration policies may impose stricter limits.
 
 ## 5. Complete Setup Checklist
 
@@ -132,6 +134,7 @@ Re-run deployment before expiry to update the policy URL. For a permitted longer
 [ ] Storage Blob Data Contributor role assigned (storage account)
 [ ] Built-in MC prerequisites initiative assigned
 [ ] Storage account and container created
+[ ] Source compiled and the exact package validated on a trusted matching-OS host
 [ ] Package uploaded with SAS URL generated
 [ ] Policy definition created with contentUri and contentHash
 [ ] Policy assigned to target scope
@@ -142,8 +145,8 @@ Re-run deployment before expiry to update the policy URL. For a permitted longer
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `The resource type 'guestConfigurationAssignments' could not be found` | Resource provider not registered | `Register-AzResourceProvider -ProviderNamespace Microsoft.GuestConfiguration` |
-| `GuestConfigurationAssignmentValidationFailed` | Hash mismatch between policy and actual package | Re-generate hash: `Get-FileHash MyConfig.zip -Algorithm SHA256` |
+| `GuestConfigurationAssignmentValidationFailed` | Hash mismatch between policy and package | Rebuild, validate and publish the same bytes; do not hand-edit a hash to bypass validation |
 | `couldn't find PowerShell DSC resource with moduleName:nx` | Using the legacy `nx` module instead of `nxtools` | Rebuild package with `nxtools` module (this builder handles it) |
 | `Extension 'AzurePolicyforLinux' not found` | MC extension not deployed | Assign the MC prerequisites initiative |
 | Compliance stuck at "Not started" | MC extension not installed or identity missing | Check VM extensions and managed identity |
-| Results take >30 minutes | Normal for first evaluation after assignment | MC agent polls every ~15 min; first eval can take up to 30 min |
+| Results remain pending | Initial processing or an execution/access issue | Distinguish policy deployment from guest-level results; inspect the report and agent logs rather than assume it is normal |

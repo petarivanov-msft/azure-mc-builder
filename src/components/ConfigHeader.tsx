@@ -5,7 +5,7 @@ import { IDENTIFIER_PATTERN } from '../utils/configuration';
 
 export const ConfigHeader: React.FC = () => {
   const { configName, platform, mode, version, description, setConfigName, setPlatform, setMode, setVersion, setDescription } = useConfigStore();
-  const { project, setWorkflow, setIncludeArc } = useConfigStore();
+  const { project, setIncludeArc } = useConfigStore();
 
   const nameError = IDENTIFIER_PATTERN.test(configName) ? '' :
     'Use letters, numbers, underscores; cannot start with a number.';
@@ -79,21 +79,12 @@ export const ConfigHeader: React.FC = () => {
         </Label>
         <Input value={version} onChange={(_, d) => setVersion(d.value)} style={{ width: '100%' }} appearance="underline" />
       </div>
-      <div style={{ flex: '0 1 230px' }}>
-        <Label htmlFor="export-workflow" size="small">Export workflow</Label>
-        <Select id="export-workflow" value={project.workflow} onChange={(_, d) => setWorkflow(d.value === 'official' ? 'official' : 'legacy')}>
-          <option value="legacy">Legacy artifacts</option>
-          <option value="official">Official authoring (preview)</option>
-        </Select>
-      </div>
-      {project.workflow === 'official' && (
-        <div style={{ flex: '1 1 100%', padding: '10px 14px', background: '#f0f7ff', borderLeft: '3px solid #0078d4', fontSize: '13px' }}>
-          Download source, then compile, explicitly test on a trusted host, and publish using Microsoft's tools.
+      <div style={{ flex: '1 1 100%', padding: '10px 14px', background: '#f0f7ff', borderLeft: '3px solid #0078d4', fontSize: '13px' }}>
+          Download a source project, then compile, test and publish using Microsoft's tools.
           No machine changes or Azure operations run in this browser.
           <Checkbox label="Include Arc servers in assignment instructions (may incur charges)" checked={project.includeArc} onChange={(_, d) => setIncludeArc(d.checked === true)} />
           <div>Persistent policy name: <code>{project.definitionName}</code></div>
-        </div>
-      )}
+      </div>
       <div style={{ flex: '1 1 100%' }}>
         <Label size="small" style={{ fontWeight: 600, fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
           Description

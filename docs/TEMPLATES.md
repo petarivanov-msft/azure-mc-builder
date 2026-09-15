@@ -159,6 +159,6 @@ The only remediation template — audits kernel parameters AND automatically fix
 2. Click **Templates** in the top bar
 3. Select a template — it loads the full configuration
 4. Customise as needed (add/remove resources, change properties)
-5. Click **Download ZIP** to get the deployment package
+5. Click **Download source project**, then follow its README to compile, test and publish with the official tools
 
 Templates are starting points. You can mix and match — load a template, then add resources from other categories.

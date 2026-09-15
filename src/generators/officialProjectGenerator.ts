@@ -60,7 +60,9 @@ export function validateOfficialConfig(config: ConfigurationState): void {
 }
 
 export function getOfficialProjectFiles(input: ConfigurationState): Record<string, string> {
-  const config = { ...input, resources: input.resources.map(withResourceDefaults) };
+  const config = { ...input, resources: input.resources.map(withResourceDefaults),
+    project: input.project && { schemaVersion: input.project.schemaVersion, policyId: input.project.policyId,
+      definitionName: input.project.definitionName, includeArc: input.project.includeArc } };
   validateOfficialConfig(config);
   const releaseName = `${config.configName}_v${config.version.replaceAll('.', '_')}`;
   const dependencies = [...new Map(config.resources.map(r => {
@@ -91,7 +93,7 @@ export async function generateOfficialProject(config: ConfigurationState): Promi
 
 function generateOfficialReadme(config: ConfigurationState): string {
   const id = config.project!.definitionName;
-  return `# ${config.configName} - official authoring preview
+  return `# ${config.configName} - Machine Configuration source project
 
 This is source, not a deployable Machine Configuration package. Keep config.json for importing back into the editor.
 The exact same runtime is used by the browser export, repository wrappers and CI.
@@ -169,7 +171,8 @@ Policy identity survives export/import and refresh. New/template projects receiv
 Each package release uses a versioned name. Changing that name can leave an older guest assignment on a target:
 review and retire old corrective assignments before explicitly deploying with -AllowReleaseUpgrade.
 The runtime never deletes assignments or definitions. Keep old package bytes and policy snapshots for reviewed rollback.
-Keep using the legacy export until your official workflow is validated on your target machines.
+Validate on your target machines before broadening the assignment scope. Older editor JSON can still be imported;
+retired workflow selections are discarded without changing the saved policy identity.
 
 ## Microsoft references
 
