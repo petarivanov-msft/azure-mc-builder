@@ -260,7 +260,8 @@ function Test-McPackage {
             $results += Assert-McEvaluation $result $project.Config.resources.Count $expectedIds
             if ($Remediate) {
                 foreach ($iteration in 1..2) {
-                    Start-GuestConfigurationPackageRemediation -Path $build.Path | Out-Null
+                    $applied = Assert-McApplyReport (Start-GuestConfigurationPackageRemediation -Path $build.Path) $project.Config.resources.Count $expectedIds
+                    $results += $applied
                     $after = Assert-McEvaluation (Get-GuestConfigurationPackageComplianceStatus -Path $build.Path) $project.Config.resources.Count $expectedIds
                     if ([string]$after.complianceStatus -notin @('True','Compliant')) { throw "Remediation iteration $iteration did not converge." }
                     $results += $after
@@ -276,6 +277,15 @@ function Test-McPackage {
             throw
         }
     }
+}
+
+function Assert-McApplyReport {
+    param($Result, [int]$ExpectedResources, [string[]]$ExpectedIds = @())
+    $report = Assert-McEvaluation $Result $ExpectedResources $ExpectedIds
+    if ([string]$report.complianceStatus -notin @('True','Compliant')) {
+        throw 'Remediation reported failure or noncompliance. A later successful Get cannot validate a failed Set.'
+    }
+    $report
 }
 
 function New-McPolicy {

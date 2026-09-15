@@ -21,7 +21,7 @@ const App: React.FC = () => {
   const { configName, platform, mode, resources, version, description, project, validate } = store;
   const errors = useMemo(() => {
     const validation = validate();
-    if (project.workflow === 'official' && resources.length > 0) {
+    if (project.workflow === 'official' && resources.length > 0 && !validation.some(e => e.level === 'error')) {
       try { validateOfficialConfig({ configName, platform, mode, resources, version, description, project }); }
       catch (error) { validation.push({ level: 'error', message: error instanceof Error ? error.message : String(error) }); }
     }

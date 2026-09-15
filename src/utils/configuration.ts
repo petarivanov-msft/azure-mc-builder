@@ -1,10 +1,16 @@
-import type { ConfigurationState, PropertySchema, ResourceInstance } from '../types';
+import type { ConfigurationState, ConfigMode, PropertySchema, ResourceInstance } from '../types';
 import { schemasByName } from '../schemas';
 import { v4 as uuidv4, validate as isUuid } from 'uuid';
 import type { ProjectSettings } from '../types';
 
 export const IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 export const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
+
+export function getConditionalRequiredProperties(resource: ResourceInstance, mode: ConfigMode): string[] {
+  // nxtools 1.6.0 calls all three setters unconditionally when creating an absent item.
+  return resource.schemaName === 'nxFile' && mode === 'AuditAndSet' && resource.properties.Ensure !== 'Absent'
+    ? ['Mode', 'Owner', 'Group'] : [];
+}
 
 export function createProjectSettings(definitionName?: string): ProjectSettings {
   const policyId = uuidv4();

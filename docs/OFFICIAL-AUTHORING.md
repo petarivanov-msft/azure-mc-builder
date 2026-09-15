@@ -48,8 +48,16 @@ evaluation failure and use a qualified disposable host rather than accepting a n
 
 AuditAndSet publication additionally requires `test.ps1 -AcknowledgeExecution -Remediate -DisposableEnvironment`.
 That operation changes the current host and must only run in a disposable lab. It performs two remediation
-iterations, each followed by a compliance check. CI also deletes its harmless marker and verifies drift correction.
+iterations, each followed by a compliance check. The actual Set report must succeed as well as the later Get;
+a resource can partially change a machine and then throw, so checking only the resulting state is insufficient.
+CI also deletes its harmless marker and verifies drift correction, and reproduces an nxFile partial-creation
+failure to prove it cannot receive a successful validation receipt.
 Do not remediate broad hardening templates in CI or on a developer workstation.
+
+For `nxFile` in AuditAndSet with Ensure=Present, explicitly choose **Mode, Owner and Group**.
+nxtools 1.6.0 invokes all three setters when an item is missing, even though the module schema calls those
+properties optional. The builder blocks incomplete remediation configs rather than silently changing ownership
+to root. Audit-only and Ensure=Absent configurations do not gain these requirements.
 
 Build records contain SHA256 fingerprints of project metadata, compiler source, lock, compiler wrapper and runtime.
 Validation is bound to the exact ZIP, platform and GuestConfiguration version. Changing any build input or package

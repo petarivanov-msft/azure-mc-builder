@@ -49,6 +49,14 @@ $module = Import-Module (Join-Path $ProjectPath 'McBuilder.psm1') -PassThru -For
     Throws { Assert-McEvaluation $evaluation 1 } 'evaluation failed'
     $evaluation.resources[0].reasons[0].code = 'ExpectedDrift'
     Throws { Assert-McEvaluation $evaluation 1 @('[Registry]Marker') } 'absent'
+    Throws { Assert-McApplyReport $evaluation 1 } 'failed Set'
+    $failedApply = @{ complianceStatus = $false; resources = @(@{
+        complianceStatus = $false; reasons = @(@{ code = 'DscConfigurationExecutionFailed'; phrase = 'Group was empty after file creation' })
+    }) }
+    Throws { Assert-McApplyReport $failedApply 1 } 'evaluation failed'
+    $subsequentGet = @{ complianceStatus = $true; resources = @(@{ complianceStatus = $true; reasons = @() }) }
+    $null = Assert-McEvaluation $subsequentGet 1
+    $null = Assert-McApplyReport $subsequentGet 1
     Throws { Test-McPackage -ProjectPath $root } 'AcknowledgeExecution'
     Throws { Test-McPackage -ProjectPath $root -AcknowledgeExecution -Remediate } 'DisposableEnvironment'
 

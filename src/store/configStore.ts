@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { AppState, ConfigurationState, ResourceInstance, ValidationError, Platform, ConfigMode } from '../types';
 import { schemasByName } from '../schemas';
-import { createProjectSettings, getPropertyValue, IDENTIFIER_PATTERN, isMissingProperty, parseConfiguration, VERSION_PATTERN, withResourceDefaults } from '../utils/configuration';
+import { createProjectSettings, getConditionalRequiredProperties, getPropertyValue, IDENTIFIER_PATTERN, isMissingProperty, parseConfiguration, VERSION_PATTERN, withResourceDefaults } from '../utils/configuration';
 
 const STORAGE_KEY = 'azure-mc-builder-config';
 const MAX_HISTORY = 50;
@@ -394,6 +394,14 @@ export const useConfigStore = create<AppState>((set, get) => {
       }
       instanceNames.add(resource.instanceName);
 
+      for (const field of getConditionalRequiredProperties(resource, state.mode)) {
+        const value = resource.properties[field];
+        if (typeof value !== 'string' || value.trim() === '') {
+          errors.push({ level: 'error', resourceId: resource.id, field,
+            message: `[${resource.instanceName}] nxFile ${field} must be explicit for AuditAndSet with Ensure=Present` });
+        }
+      }
+
       // Required + key properties
       for (const prop of schema.properties) {
         if (prop.required || prop.isKey) {
@@ -460,7 +468,7 @@ export const useConfigStore = create<AppState>((set, get) => {
       // nxFile: Mode is technically optional in schema but the nxtools DSC resource
       // throws "Cannot bind argument to parameter 'Mode' because it is null" when
       // creating files without it. Warn if Mode is empty for nxFile with Ensure=Present.
-      if (resource.schemaName === 'nxFile') {
+      if (resource.schemaName === 'nxFile' && state.mode === 'Audit') {
         const ensure = resource.properties['Ensure'] ?? 'Present';
         const mode = resource.properties['Mode'];
         if (ensure === 'Present' && (!mode || mode === '')) {

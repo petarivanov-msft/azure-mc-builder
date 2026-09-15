@@ -8,6 +8,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { generateMofContent } from '../mofGenerator';
+import { generatePs1 } from '../ps1Generator';
 
 function fixture(): ConfigurationState {
   return { configName: 'OfficialTest', platform: 'Windows', mode: 'Audit', version: '1.2.3',
@@ -17,6 +19,36 @@ function fixture(): ConfigurationState {
 }
 
 describe('official authoring project', () => {
+  it.each(['Mode', 'Owner', 'Group'])('requires explicit nxFile %s only for file-creation remediation', field => {
+    const config = fixture();
+    config.platform = 'Linux';
+    config.mode = 'AuditAndSet';
+    config.resources = [{ id: '1', schemaName: 'nxFile', instanceName: 'Marker', dependsOn: [],
+      properties: { DestinationPath: '/var/tmp/mc-test', Ensure: 'Present', Mode: '0644', Owner: 'root', Group: 'root' } }];
+    delete config.resources[0].properties[field];
+    for (const generate of [getOfficialProjectFiles, generateMofContent, generatePs1]) {
+      expect(() => generate(config)).toThrow(`nxFile ${field} must be explicit`);
+    }
+    const store = useConfigStore.getState();
+    store.importJSON(JSON.stringify(config));
+    expect(store.validate().some(e => e.field === field && e.level === 'error')).toBe(true);
+    expect(config.resources[0].properties).not.toHaveProperty(field);
+    config.mode = 'Audit';
+    expect(() => getOfficialProjectFiles(config)).not.toThrow();
+    config.mode = 'AuditAndSet';
+    config.resources[0].properties.Ensure = 'Absent';
+    expect(() => getOfficialProjectFiles(config)).not.toThrow();
+  });
+
+  it('does not replace empty ownership with a silent root default', () => {
+    const config = fixture();
+    config.platform = 'Linux'; config.mode = 'AuditAndSet';
+    config.resources = [{ id: '1', schemaName: 'nxFile', instanceName: 'Marker', dependsOn: [],
+      properties: { DestinationPath: '/var/tmp/mc-test', Mode: '0644', Owner: 'root', Group: ' ' } }];
+    expect(() => getOfficialProjectFiles(config)).toThrow('Group must be explicit');
+    expect(config.resources[0].properties.Group).toBe(' ');
+  });
+
   it('executes fail-closed runtime contracts without contacting Azure', () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-contract-'));
     try {
