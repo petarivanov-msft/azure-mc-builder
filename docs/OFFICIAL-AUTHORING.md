@@ -13,6 +13,19 @@ The source project includes `config.json`, `Configuration.ps1`, `toolchain.lock.
 Compiler output, real package metadata, validation receipts and official policies are created after download.
 There is no custom-MOF fallback or ZIP-layout repair in this workflow.
 
+### Pinned upstream compatibility guard
+
+Real native tests exposed a GuestConfiguration 4.12.0 defect: with `IncludeVMSS = $false`, its private
+`New-GuestConfigurationPolicySetActionSection` still assigns metadata to `resources[2]`, although the
+non-VMSS template has only two resources. Installed 4.5.0, 4.7.0 and 4.11.0 contain the same line.
+The runtime applies one declared guard (`if ($IncludeVMSS)`) to that line **only in the isolated cache**.
+Both original and patched SHA256 digests are pinned in the toolchain lock; an unexpected module fails closed.
+No generated policy JSON is rewritten, and no global module installation is changed. Re-qualify and remove
+this guard when a corrected official module is selected.
+
+Evaluation also explicitly rejects `DscConfigurationExecutionFailed` and requires the expected resource IDs.
+The worker can return a noncompliant-shaped report after a catastrophic error; that is not valid drift.
+
 Versions are pinned in `scripts/toolchain.lock.json`. Resource versions must match the catalog or export fails.
 Run `package.ps1 -RestoreTools` to explicitly restore from PSGallery into `.modules`. `MC_MODULE_CACHE` can
 select a reusable cache. Module installations outside that cache are not upgraded.
@@ -27,6 +40,9 @@ qualify every catalog resource and template, rather than testing a hand-authored
 runs package Get/Test code. Even an audit package can contain arbitrary Script resource code; review it first.
 Use a trusted matching-OS test host. Test results distinguish expected noncompliance from malformed or failed
 resource evaluation, and require a result for every expected resource.
+Linux evaluation requires root; the runtime does not silently elevate. The disposable Linux CI job explicitly
+uses sudo. Windows resource localization can fail on some non-en-US authoring hosts; treat this as an
+evaluation failure and use a qualified disposable host rather than accepting a noncompliant-shaped error.
 
 AuditAndSet publication additionally requires `test.ps1 -AcknowledgeExecution -Remediate -DisposableEnvironment`.
 That operation changes the current host and must only run in a disposable lab. It performs two remediation

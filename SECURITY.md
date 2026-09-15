@@ -49,6 +49,12 @@ The downloaded bundle includes PowerShell scripts that, when you run them:
 
 ### SAS Tokens
 
+The official-authoring preview adds an explicit execution boundary: building does not evaluate the package;
+Get/Test requires acknowledgement, and remediation additionally requires a disposable-host flag. Script resources
+can execute arbitrary code even in Audit mode, so review all source and use isolated test hosts.
+Publication requires matching build/validation fingerprints and explicit tenant/subscription IDs. Receipts protect
+against accidental stale deployment, not deliberate tampering. The preview never assigns a policy or grants roles automatically.
+
 Both deployment scripts default to Microsoft Entra ID (`-StorageAuthMode UserDelegation`) and an HTTPS-only, read-only blob SAS with a **6-day expiry**. User delegation keys are limited to seven days; the script caps the SAS at six days to leave room for clock skew. Renew the URL before expiry by re-running deployment. The script prints the expiry warning.
 
 For an approved long-lived service SAS, explicitly pass `-StorageAuthMode SharedKey -SasExpiryDays 1095`. This requires permission to list account keys and Shared Key authentication enabled on the account. There is **no silent fallback** from Entra ID to account keys, nor any automatic RBAC grant. Storage-account SAS expiration policies can impose stricter limits.

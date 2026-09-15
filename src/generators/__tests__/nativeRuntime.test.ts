@@ -29,7 +29,10 @@ it.skipIf(process.env.MC_NATIVE_RUNTIME !== '1')('builds real official packages 
       mkdirSync(dir, { recursive: true });
       for (const [name, content] of Object.entries(getOfficialProjectFiles(config))) writeFileSync(join(dir, name), content);
       const run = (file: string, args: string[] = []) => {
-        const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', join(dir, file), ...args],
+        const elevate = platform === 'Linux' && process.env.CI === 'true' && process.env.MC_NATIVE_REMEDIATE === '1';
+        const executable = elevate ? 'sudo' : 'pwsh';
+        const prefix = elevate ? ['--preserve-env=MC_MODULE_CACHE,PSModulePath', 'pwsh'] : [];
+        const result = spawnSync(executable, [...prefix, '-NoProfile', '-NonInteractive', '-File', join(dir, file), ...args],
           { encoding: 'utf8', timeout: 600_000, windowsHide: true, maxBuffer: 10 * 1024 * 1024 });
         expect(result.error).toBeUndefined();
         expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);

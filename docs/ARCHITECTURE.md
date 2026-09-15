@@ -149,6 +149,17 @@ The store (`src/store/configStore.ts`) uses Zustand with:
 - **Import/export** — shape-checked JSON with schema defaults applied consistently on import, reload and generation
 - **Validation** — checks for duplicate instance names, missing required properties, and nxFile `Mode` format warnings
 
+## Official authoring preview
+
+The opt-in official workflow preserves the editor but exports DSC source and the shared `scripts/McBuilder.psm1`
+runtime instead of browser-generated MOF/policy/metaconfig. The actual compiler and GuestConfiguration 4.12.0
+produce those artifacts after download. Shared resource validation is independent of the legacy MOF generator.
+Versioned project metadata preserves policy identity through import/export, persistence and undo/redo.
+
+Build and validation records bind the source, toolchain and exact package bytes. Publishing checks the selected
+tenant/subscription, calls the official policy generator, compares hashes and upserts without assigning or remediating.
+Native Windows/Linux CI uses the exported runtime; legacy tests remain separate. See [official authoring](OFFICIAL-AUTHORING.md).
+
 ## Build & CI
 
 - **Vite** — development server and production build

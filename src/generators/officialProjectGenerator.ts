@@ -100,6 +100,8 @@ The exact same runtime is used by the browser export, repository wrappers and CI
 Use PowerShell 7.2+ on a qualified Windows or Ubuntu authoring host, not Windows PowerShell 5.1 or macOS.
 Compilation of every resource is qualified in CI on its own OS; cross-OS compilation is not promised.
 The lock selects GuestConfiguration 4.12.0 and PSDesiredStateConfiguration 2.0.7 (Windows) / 3.0.0-beta1 (Linux).
+The isolated cache applies a hash-pinned one-line guard for an upstream 4.12.0 non-VMSS policy generation defect;
+it does not rewrite generated policy JSON or change global modules.
 
 \`\`\`powershell
 pwsh ./package.ps1 -RestoreTools
@@ -114,6 +116,8 @@ Do not edit generated metaconfig or policy formats. Change the source and rebuil
 
 Review source and resource modules first: Get/Test can execute arbitrary code.
 Run on a trusted **${config.platform}** test host. Copy the complete project and output directory if testing elsewhere.
+Linux evaluation needs an explicitly elevated/root shell. Windows localization errors are failures, not valid drift;
+use a qualified disposable host if resource localization fails on your workstation.
 The module cache is not part of the project input hash and can be restored on that host.
 
 \`\`\`powershell

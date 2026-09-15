@@ -53,6 +53,13 @@ describe('official authoring project', () => {
     expect(imported.project!.workflow).toBe('legacy');
   });
 
+  it('keeps unfinished legacy names editable and reloadable after migration', () => {
+    const old = fixture(); delete old.project; old.configName = 'unfinished name';
+    const imported = parseConfiguration(JSON.stringify(old));
+    expect(imported.project!.definitionName).toBe(imported.project!.policyId);
+    expect(parseConfiguration(JSON.stringify(imported)).configName).toBe('unfinished name');
+  });
+
   it('migrates the invalid battery property without reversing intent', () => {
     const config = fixture();
     config.resources = [{ id: '1', schemaName: 'ScheduledTask', instanceName: 'Task',

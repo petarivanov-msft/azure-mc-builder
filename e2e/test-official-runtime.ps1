@@ -45,6 +45,10 @@ $module = Import-Module (Join-Path $ProjectPath 'McBuilder.psm1') -PassThru -For
     Throws { Assert-McEvaluation @{ complianceStatus = $false; error = 'Execution failed'; resources = @() } 1 } 'execution error'
     $evaluation.resources[0].reasons[0].code = 'GetConfigurationException'
     Throws { Assert-McEvaluation $evaluation 1 } 'evaluation failed'
+    $evaluation.resources[0].reasons[0].code = 'DscConfigurationExecutionFailed'
+    Throws { Assert-McEvaluation $evaluation 1 } 'evaluation failed'
+    $evaluation.resources[0].reasons[0].code = 'ExpectedDrift'
+    Throws { Assert-McEvaluation $evaluation 1 @('[Registry]Marker') } 'absent'
     Throws { Test-McPackage -ProjectPath $root } 'AcknowledgeExecution'
     Throws { Test-McPackage -ProjectPath $root -AcknowledgeExecution -Remediate } 'DisposableEnvironment'
 

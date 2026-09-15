@@ -67,6 +67,25 @@ function Initialize-McTools {
         if (-not (Test-Path -LiteralPath $manifest)) { throw "Restore did not produce the required manifest: $manifest" }
     }
     $env:PSModulePath = "$cache$([IO.Path]::PathSeparator)$env:PSModulePath"
+    $guestSource = Join-Path $cache "GuestConfiguration/$($Project.Lock.guestConfiguration)/GuestConfiguration.psm1"
+    Invoke-McWorker @{ Cache = $cache } {
+        $patch = $Project.Lock.guestConfigurationPatch
+        if ($Project.Lock.guestConfiguration -ne '4.12.0' -or $patch.id -ne 'non-vmss-set-index-guard-1') {
+            throw 'Unqualified GuestConfiguration version or compatibility patch.'
+        }
+        $hash = (Get-FileHash -LiteralPath $guestSource -Algorithm SHA256).Hash
+        if ($hash -ceq $patch.originalSha256) {
+            $source = [IO.File]::ReadAllText($guestSource)
+            $line = '$setActionSection.details.deployment.properties.template.resources[2].properties.guestConfiguration = $guestConfigMetadataSection'
+            $patched = $source.Replace($line, ('if ($IncludeVMSS) { ' + $line + ' }'))
+            $bytes = [Text.UTF8Encoding]::new($false).GetBytes($patched)
+            if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)) -cne $patch.patchedSha256) {
+                throw 'Pinned upstream compatibility patch did not match. No module was changed.'
+            }
+            Write-Warning 'Applying locked GuestConfiguration 4.12.0 non-VMSS compatibility guard to the isolated cache. See OFFICIAL-AUTHORING.md.'
+            [IO.File]::WriteAllBytes($guestSource, $bytes)
+        } elseif ($hash -cne $patch.patchedSha256) { throw 'GuestConfiguration source does not match the pinned original or patched digest.' }
+    }
     Import-Module (Join-Path $cache "GuestConfiguration/$($Project.Lock.guestConfiguration)/GuestConfiguration.psd1") -Force
     if ($Azure) {
         foreach ($name in @('Az.Accounts','Az.Storage','Az.Resources')) {
@@ -185,7 +204,7 @@ function Assert-McBuild {
 }
 
 function Assert-McEvaluation {
-    param($Result, [int]$ExpectedResources)
+    param($Result, [int]$ExpectedResources, [string[]]$ExpectedIds = @())
     if ($null -eq $Result) { throw 'Evaluation returned no result.' }
     $data = $Result | ConvertTo-Json -Depth 100 | ConvertFrom-Json -AsHashtable
     $allowed = @('True','False','Compliant','NonCompliant')
@@ -199,8 +218,14 @@ function Assert-McEvaluation {
         }
         $propertyReasons = if ($resource['properties']) { $resource['properties']['Reasons'] } else { @() }
         foreach ($reason in @($resource['reasons']) + @($propertyReasons)) {
-            if ($null -ne $reason -and [string]$reason['code'] -match '(Exception|ExecutionError|ResourceNotFound|GetConfigurationError)') {
+            if ($null -ne $reason -and [string]$reason['code'] -match '(DscConfigurationExecutionFailed|Exception|ExecutionError|ResourceNotFound|GetConfigurationError)') {
                 throw "Resource evaluation failed: $($reason['code'])"
+            }
+            $returnedIds = @($resources | ForEach-Object {
+                if ($_['properties']) { $_['properties']['ResourceId'] } else { $_['ResourceId'] }
+            })
+            foreach ($id in $ExpectedIds) {
+                if ($id -notin $returnedIds) { throw "Expected resource '$id' is absent from the evaluation result." }
             }
         }
     }
@@ -213,11 +238,13 @@ function Test-McPackage {
         [switch]$Remediate, [switch]$DisposableEnvironment, [switch]$RestoreTools)
     if (-not $AcknowledgeExecution) { throw 'Get/Test executes package code. Review it and pass -AcknowledgeExecution on a trusted test host.' }
     if ($Remediate -and -not $DisposableEnvironment) { throw 'Remediation modifies this machine. Use -DisposableEnvironment only on an explicitly approved disposable host.' }
+    if ($IsLinux -and (& id -u) -ne '0') { throw 'Linux package evaluation requires root on a trusted disposable host. Rerun explicitly with sudo; no automatic elevation is performed.' }
     $project = Read-McProject $ProjectPath
     $hostPlatform = if ($IsWindows) { 'Windows' } elseif ($IsLinux) { 'Linux' } else { 'Unsupported' }
     if ($hostPlatform -cne $project.Config.platform) { throw "Test this $($project.Config.platform) package on a matching-OS test host." }
     if ($Remediate -and $project.Config.mode -cne 'AuditAndSet') { throw 'Audit packages must not be remediated.' }
     $build = Assert-McBuild $project
+    $expectedIds = @($project.Config.resources | ForEach-Object { "[$($_.schemaName)]$($_.instanceName)" })
     $tools = Initialize-McTools $project -RestoreTools:$RestoreTools
     $receipt = Join-Path $project.Output 'validation.json'
     if (Test-Path -LiteralPath $receipt) { Remove-Item -LiteralPath $receipt }
@@ -225,11 +252,11 @@ function Test-McPackage {
         try {
             $results = @()
             $result = Get-GuestConfigurationPackageComplianceStatus -Path $build.Path
-            $results += Assert-McEvaluation $result $project.Config.resources.Count
+            $results += Assert-McEvaluation $result $project.Config.resources.Count $expectedIds
             if ($Remediate) {
                 foreach ($iteration in 1..2) {
                     Start-GuestConfigurationPackageRemediation -Path $build.Path | Out-Null
-                    $after = Assert-McEvaluation (Get-GuestConfigurationPackageComplianceStatus -Path $build.Path) $project.Config.resources.Count
+                    $after = Assert-McEvaluation (Get-GuestConfigurationPackageComplianceStatus -Path $build.Path) $project.Config.resources.Count $expectedIds
                     if ([string]$after.complianceStatus -notin @('True','Compliant')) { throw "Remediation iteration $iteration did not converge." }
                     $results += $after
                 }

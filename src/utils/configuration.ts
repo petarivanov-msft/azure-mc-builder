@@ -8,7 +8,8 @@ export const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 
 export function createProjectSettings(definitionName?: string): ProjectSettings {
   const policyId = uuidv4();
-  return { schemaVersion: 2, policyId, definitionName: definitionName ?? policyId,
+  const validName = definitionName && /^[A-Za-z0-9_-]{1,64}$/.test(definitionName);
+  return { schemaVersion: 2, policyId, definitionName: validName ? definitionName : policyId,
     workflow: 'legacy', includeArc: true };
 }
 
