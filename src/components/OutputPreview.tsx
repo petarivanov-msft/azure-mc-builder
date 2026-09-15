@@ -1,123 +1,87 @@
-import React, { useState, useMemo } from 'react';
-import { Tab, TabList, Button, Tooltip, Badge } from '@fluentui/react-components';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Badge, Button, Tab, TabList, Tooltip } from '@fluentui/react-components';
 import { useConfigStore } from '../store/configStore';
-import { getGeneratedOutputs } from '../generators';
-import { getOfficialProjectFiles } from '../generators/officialProjectGenerator';
+import { getOfficialProjectFiles } from '../generators';
 
-type OutputTab = 'mof' | 'metaconfig' | 'ps1' | 'policyJson' | 'packageScript' | 'readme';
-
-const TAB_LABELS: Record<OutputTab, string> = {
-  mof: 'MOF',
-  metaconfig: 'Metaconfig',
-  ps1: 'PowerShell',
-  policyJson: 'Policy JSON',
-  packageScript: 'Package Script',
-  readme: 'README',
+const TAB_LABELS = {
+  'Configuration.ps1': 'DSC source',
+  'config.json': 'Project',
+  'package.ps1': 'Build',
+  'test.ps1': 'Test',
+  'deploy.ps1': 'Publish',
+  'README.md': 'README',
 };
+type OutputTab = keyof typeof TAB_LABELS;
 
 export const OutputPreview: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<OutputTab>('mof');
-  const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<OutputTab>('Configuration.ps1');
   const [collapsed, setCollapsed] = useState(false);
-
-  const configName = useConfigStore(s => s.configName);
-  const platform = useConfigStore(s => s.platform);
-  const mode = useConfigStore(s => s.mode);
-  const version = useConfigStore(s => s.version);
-  const description = useConfigStore(s => s.description);
-  const resources = useConfigStore(s => s.resources);
-  const project = useConfigStore(s => s.project);
-
-  const config = useMemo(() => ({
-    configName, platform, mode, version, description, resources, project,
-  }), [configName, platform, mode, version, description, resources, project]);
-
-  const official = useMemo(() => {
-    if (project.workflow !== 'official') return null;
-    try { return { files: getOfficialProjectFiles(config), error: '' }; }
-    catch (error) { return { files: null, error: error instanceof Error ? error.message : String(error) }; }
-  }, [config, project.workflow]);
-
-  const outputs = useMemo(() => {
-    if (config.resources.length === 0 || project.workflow === 'official') return null;
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState('');
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const { configName, platform, mode, version, description, resources, project } = useConfigStore();
+  const output = useMemo(() => {
+    if (resources.length === 0) return { files: null, error: '' };
     try {
-      return getGeneratedOutputs(config);
-    } catch {
-      return null;
+      return { files: getOfficialProjectFiles({ configName, platform, mode, version, description, resources, project }), error: '' };
+    } catch (error) {
+      return { files: null, error: error instanceof Error ? error.message : String(error) };
     }
-  }, [config, project.workflow]);
+  }, [configName, platform, mode, version, description, resources, project]);
+  const content = output.files?.[activeTab] ?? '';
 
-  const tabContent = official ? (official.files?.['Configuration.ps1'] ?? '') : outputs ? outputs[activeTab] : '';
-
-  const copyToClipboard = async () => {
-    if (tabContent) {
-      await navigator.clipboard.writeText(tabContent);
+  const copy = async () => {
+    setCopyError('');
+    try {
+      await navigator.clipboard.writeText(content);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      setCopyError(`Could not copy source: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
   return (
-    <div style={{ background: '#fff', borderTop: '1px solid #e0e0e0' }}>
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '8px 20px',
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-        onClick={() => setCollapsed(!collapsed)}
-      >
+    <section aria-label="Source project preview" style={{ background: '#fff', borderTop: '1px solid #e0e0e0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600 }}>{collapsed ? '▶' : '▼'} Output Preview</span>
-          {outputs && <Badge appearance="outline" size="small">Live</Badge>}
+          <Button appearance="subtle" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>
+            {collapsed ? 'Show source project' : 'Hide source project'}
+          </Button>
+          {output.files && <Badge appearance="outline" size="small">Live preview</Badge>}
         </div>
-        {!collapsed && outputs && (
-          <div style={{ display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
-            <Tooltip content={copied ? 'Copied!' : 'Copy to clipboard'} relationship="label">
-              <Button appearance="subtle" size="small" onClick={copyToClipboard}>
-                {copied ? '✓ Copied' : 'Copy'}
-              </Button>
-            </Tooltip>
-          </div>
+        {!collapsed && content && (
+          <Tooltip content={copied ? 'Copied!' : 'Copy selected source file'} relationship="label">
+            <Button appearance="subtle" size="small" onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
+          </Tooltip>
         )}
       </div>
-
-      {!collapsed && official && (
-        <div style={{ padding: '16px 20px' }}>
-          <h3>Official DSC source</h3>
-          <p>MOF, package metadata and policy JSON are produced by the PowerShell tools after download, not simulated in this preview.</p>
-          {official.error ? <p role="alert">{official.error}</p> : <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '50vh', overflow: 'auto' }}>{tabContent}</pre>}
-        </div>
-      )}
-      {!collapsed && !official && (
+      {!collapsed && (
         <>
-          <div style={{ padding: '0 20px', borderBottom: '1px solid #e8e8e8' }}>
-            <TabList selectedValue={activeTab} onTabSelect={(_, d) => setActiveTab(d.value as OutputTab)} size="small">
-              {(Object.keys(TAB_LABELS) as OutputTab[]).map(key => (
-                <Tab key={key} value={key}>{TAB_LABELS[key]}</Tab>
-              ))}
-            </TabList>
-          </div>
-          <pre style={{
-            margin: 0,
-            padding: '16px 20px',
-            backgroundColor: '#1b1b1f',
-            color: '#d4d4d4',
-            overflow: 'auto',
-            maxHeight: '60vh',
-            minHeight: '200px',
-            fontSize: '12px',
-            lineHeight: '1.5',
-            fontFamily: 'Consolas, "Cascadia Code", monospace',
-          }}>
-            {outputs ? tabContent : (
-              <span style={{ color: '#666' }}>Add resources to see generated output here</span>
-            )}
+          <p style={{ padding: '0 20px', color: '#555', fontSize: '13px' }}>
+            The official tools create the MOF, package metadata and policy JSON after download.
+            These tabs show the source project, not simulated deployment artifacts.
+          </p>
+          <TabList selectedValue={activeTab} size="small" style={{ padding: '0 20px' }}
+            onTabSelect={(_, data) => {
+              if (typeof data.value === 'string' && Object.hasOwn(TAB_LABELS, data.value)) {
+                setActiveTab(data.value as OutputTab);
+                setCopied(false);
+                setCopyError('');
+              }
+            }}>
+            {Object.entries(TAB_LABELS).map(([file, label]) => <Tab key={file} value={file}>{label}</Tab>)}
+          </TabList>
+          {(output.error || copyError) && <p role="alert" style={{ padding: '0 20px', color: '#a4262c' }}>{output.error || copyError}</p>}
+          <pre style={{ margin: 0, padding: '16px 20px', background: '#1b1b1f', color: '#d4d4d4',
+            whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', overflow: 'auto', maxHeight: '60vh',
+            minHeight: '200px', font: '12px/1.5 Consolas, monospace' }}>
+            {content || (output.error ? 'Resolve the validation errors to preview this project.' : 'Add resources to preview the source project.')}
           </pre>
         </>
       )}
-    </div>
+    </section>
   );
 };

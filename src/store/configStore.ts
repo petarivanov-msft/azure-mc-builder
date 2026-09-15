@@ -108,13 +108,6 @@ export const useConfigStore = create<AppState>((set, get) => {
 
   finishEditing,
 
-  setWorkflow: workflow => {
-    if (workflow === get().project.workflow) return;
-    pushHistory();
-    set(s => ({ project: { ...s.project, workflow } }));
-    saveToStorage(extractConfig(get()));
-  },
-
   setIncludeArc: includeArc => {
     pushHistory();
     set(s => ({ project: { ...s.project, includeArc } }));

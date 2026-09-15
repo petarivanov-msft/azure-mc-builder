@@ -8,12 +8,11 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { generateMofContent } from '../mofGenerator';
 import { generatePs1 } from '../ps1Generator';
 
 function fixture(): ConfigurationState {
   return { configName: 'OfficialTest', platform: 'Windows', mode: 'Audit', version: '1.2.3',
-    description: '', project: { ...createProjectSettings(), workflow: 'official' },
+    description: '', project: createProjectSettings(),
     resources: [{ id: '1', schemaName: 'Registry', instanceName: 'Marker',
       properties: { Key: 'HKLM:\\SOFTWARE\\MCBuilderVerification', ValueName: 'Marker', ValueData: ['verified'], ValueType: 'String' }, dependsOn: [] }] };
 }
@@ -26,7 +25,7 @@ describe('official authoring project', () => {
     config.resources = [{ id: '1', schemaName: 'nxFile', instanceName: 'Marker', dependsOn: [],
       properties: { DestinationPath: '/var/tmp/mc-test', Ensure: 'Present', Mode: '0644', Owner: 'root', Group: 'root' } }];
     delete config.resources[0].properties[field];
-    for (const generate of [getOfficialProjectFiles, generateMofContent, generatePs1]) {
+    for (const generate of [getOfficialProjectFiles, generatePs1]) {
       expect(() => generate(config)).toThrow(`nxFile ${field} must be explicit`);
     }
     const store = useConfigStore.getState();
@@ -82,7 +81,15 @@ describe('official authoring project', () => {
     const imported = parseConfiguration(JSON.stringify(old));
     expect(imported.project!.definitionName).toBe('MC-OfficialTest');
     expect(parseConfiguration(JSON.stringify(imported)).project).toEqual(imported.project);
-    expect(imported.project!.workflow).toBe('legacy');
+    expect(imported.project).not.toHaveProperty('workflow');
+  });
+
+  it.each(['legacy', 'official'])('migrates saved %s projects without changing identity', workflow => {
+    const config = fixture();
+    const imported = parseConfiguration(JSON.stringify({ ...config, project: { ...config.project, workflow } }));
+    expect(imported.project).toEqual(config.project);
+    expect(imported.project).not.toHaveProperty('workflow');
+    expect(getOfficialProjectFiles(imported)).toHaveProperty('Configuration.ps1');
   });
 
   it('keeps unfinished legacy names editable and reloadable after migration', () => {
@@ -102,13 +109,13 @@ describe('official authoring project', () => {
     expect(getOfficialProjectFiles(config)['Configuration.ps1']).toContain('AllowStartIfOnBatteries = $false');
   });
 
-  it('preserves identity across workflow selection and undo, but new projects get a new one', () => {
+  it('preserves identity across settings changes and undo, but new projects get a new one', () => {
     const store = useConfigStore.getState();
     store.importJSON(JSON.stringify(fixture()));
     const id = useConfigStore.getState().project.policyId;
-    store.setWorkflow('legacy'); store.undo();
+    store.setIncludeArc(false); store.undo();
     expect(useConfigStore.getState().project.policyId).toBe(id);
-    expect(useConfigStore.getState().project.workflow).toBe('official');
+    expect(useConfigStore.getState().project.includeArc).toBe(true);
     store.resetConfig();
     expect(useConfigStore.getState().project.policyId).not.toBe(id);
   });

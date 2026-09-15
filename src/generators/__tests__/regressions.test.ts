@@ -1,88 +1,69 @@
 import { describe, expect, it } from 'vitest';
-import JSZip from 'jszip';
-import type { ConfigurationState } from '../../types';
-import { generateMofContent } from '../mofGenerator';
 import { generatePs1 } from '../ps1Generator';
-import { generatePolicyJson } from '../policyGenerator';
-import { generateMetaconfig } from '../metaconfigGenerator';
-import { generatePackageScript } from '../packageScriptGenerator';
-import { generateDeployScript } from '../deployScriptGenerator';
-import { generateBundle } from '../bundleGenerator';
+import { getOfficialProjectFiles } from '../officialProjectGenerator';
+import { schemaConfig } from './fixtures';
 
-const base: ConfigurationState = {
-  configName: 'RegressionTest', platform: 'Windows', mode: 'Audit',
-  version: '2.3.4', description: '', resources: [],
-};
-
-describe('generator boundaries and defaults', () => {
-  const generators = [generateMofContent, generatePs1, generatePolicyJson,
-    generateMetaconfig, generatePackageScript, generateDeployScript];
-
-  it.each(['bad"name', 'bad\nname', '../escape', "bad'name", '123name', ''])('rejects invalid name %j in every entry point', configName => {
-    for (const generate of generators) {
-      expect(() => generate({ ...base, configName })).toThrow('valid identifier');
-    }
+describe('source boundaries, defaults and escaping', () => {
+  const generators = [generatePs1, getOfficialProjectFiles];
+  it.each(['bad"name', 'bad\nname', '../escape', "bad'name", '123name', ''])('rejects invalid identifier %j', configName => {
+    for (const generate of generators) expect(() => generate({ ...schemaConfig('Service'), configName })).toThrow('valid identifier');
   });
-
-  it('rejects invalid instance names without relying on UI validation', () => {
-    for (const generate of generators) {
-      expect(() => generate({ ...base, resources: [{
-        id: '1', schemaName: 'Service', instanceName: 'bad";', properties: { Name: 'test' }, dependsOn: [],
-      }] })).toThrow('Invalid instance name');
-    }
-  });
-
   it.each(['bad', "1.0.0';bad", '', '1.0'])('rejects invalid version %j', version => {
-    for (const generate of generators) expect(() => generate({ ...base, version })).toThrow('Version');
+    for (const generate of generators) expect(() => generate({ ...schemaConfig('Service'), version })).toThrow('Version');
   });
-
-  it.each(['TimeZone', 'PowerPlan'])('emits missing required schema defaults for %s without mutating input', schemaName => {
-    const config = { ...base, resources: [{
-      id: '1', schemaName, instanceName: 'DefaultTest',
-      properties: schemaName === 'TimeZone' ? { TimeZone: 'UTC' } : { Name: 'Balanced' }, dependsOn: [],
-    }] };
-    expect(generateMofContent(config)).toContain('IsSingleInstance = "Yes";');
+  it('rejects invalid instance names and unknown resource types', () => {
+    const config = schemaConfig('Service');
+    config.resources[0].instanceName = 'bad";';
+    for (const generate of generators) expect(() => generate(config)).toThrow('Invalid instance name');
+    config.resources[0].instanceName = 'Valid';
+    config.resources[0].schemaName = 'Group';
+    for (const generate of generators) expect(() => generate(config)).toThrow('Unknown schema');
+  });
+  it.each(['TimeZone', 'PowerPlan'])('materializes %s defaults without mutating the input', name => {
+    const config = schemaConfig(name);
+    delete config.resources[0].properties.IsSingleInstance;
     expect(generatePs1(config)).toContain("IsSingleInstance = 'Yes'");
+    expect(getOfficialProjectFiles(config)['Configuration.ps1']).toContain("IsSingleInstance = 'Yes'");
     expect(config.resources[0].properties).not.toHaveProperty('IsSingleInstance');
   });
-
-  it.each([null, ''])('does not hide an explicitly invalid required value %j with a default', IsSingleInstance => {
-    const config = { ...base, resources: [{
-      id: '1', schemaName: 'TimeZone', instanceName: 'TZ',
-      properties: { IsSingleInstance, TimeZone: 'UTC' }, dependsOn: [],
-    }] };
-    expect(() => generateMofContent(config)).toThrow('Required property');
-    expect(() => generatePs1(config)).toThrow('Required property');
+  it.each([null, ''])('does not hide an invalid required value %j with a default', value => {
+    const config = schemaConfig('TimeZone');
+    config.resources[0].properties.IsSingleInstance = value;
+    for (const generate of generators) expect(() => generate(config)).toThrow('Required property');
   });
-
-  it('preserves empty Registry ValueName in both MOF and reference PowerShell', () => {
-    const config = { ...base, resources: [{
-      id: '1', schemaName: 'Registry', instanceName: 'DefaultValue',
-      properties: { Key: 'HKLM:\\SOFTWARE\\Test', ValueName: '' }, dependsOn: [],
-    }] };
-    expect(generateMofContent(config)).toContain('ValueName = "";');
+  it('preserves empty Registry default-value names', () => {
+    const config = schemaConfig('Registry');
+    config.resources[0].properties.ValueName = '';
     expect(generatePs1(config)).toContain("ValueName = ''");
   });
-
-  it('rejects comma-separated alternatives for a single-valued enum', () => {
-    expect(() => generateMofContent({ ...base, resources: [{
-      id: '1', schemaName: 'Service', instanceName: 'Svc',
-      properties: { Name: 'test', State: 'Running,Stopped' }, dependsOn: [],
-    }] })).toThrow('Invalid value');
+  it('preserves underscore identifiers and skips unset optional source properties', () => {
+    const config = schemaConfig('Registry');
+    config.configName = 'My_Config_Name';
+    config.resources[0].properties.ValueData = [];
+    const source = generatePs1(config);
+    expect(source).toContain('Configuration My_Config_Name');
+    expect(source).not.toContain('ValueData =');
   });
-
-  it.each(['Audit', 'AuditAndSet'] as const)('keeps %s bundle metadata and packaging inputs aligned', async mode => {
-    const config = { ...base, mode, resources: [{
-      id: '1', schemaName: 'Service', instanceName: 'Svc', properties: { Name: 'test' }, dependsOn: [],
-    }] };
-    const blob = await generateBundle(config);
-    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-    const metadata = JSON.parse(await zip.file(`${base.configName}.metaconfig.json`)!.async('string'));
-    expect(metadata).toEqual({ Type: mode, Version: base.version });
-    const script = await zip.file('package.ps1')!.async('string');
-    expect(script).toContain('-Type $metadata.Type');
-    expect(script).toContain('-Version $metadata.Version');
-    expect(script).not.toMatch(/\$matches\s*=/i);
-    expect(await zip.file('deploy.ps1')!.async('string')).not.toMatch(/\$matches\s*=/i);
+  it('escapes single quotes but preserves paths, dollar signs, double quotes, Unicode and multiline text', () => {
+    const config = schemaConfig('Registry');
+    config.resources[0].properties.ValueData = ['C:\\Program Files\\test', 'résumé "café"', "O'Brien", '$env:PATH', 'first\nsecond'];
+    const source = generatePs1(config);
+    expect(source).toContain("'C:\\Program Files\\test'");
+    expect(source).toContain("'résumé \"café\"'");
+    expect(source).toContain("'O''Brien'");
+    expect(source).toContain("'$env:PATH'");
+    expect(source).toContain("'first\nsecond'");
+  });
+  it('strips null bytes from source strings and rejects malformed enum combinations', () => {
+    const config = schemaConfig('Service');
+    config.resources[0].properties.Name = 'test\0service';
+    expect(generatePs1(config)).toContain("'testservice'");
+    config.resources[0].properties.State = 'Running,Stopped';
+    expect(() => getOfficialProjectFiles(config)).toThrow('Invalid value');
+  });
+  it.each([NaN, Infinity, 1.5, -1, '3'])('rejects an invalid integer %j at the source-project boundary', value => {
+    const config = schemaConfig('ScheduledTask');
+    config.resources[0].properties.Priority = value;
+    expect(() => getOfficialProjectFiles(config)).toThrow('Invalid integer');
   });
 });

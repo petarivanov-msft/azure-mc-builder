@@ -1,7 +1,7 @@
-# Official authoring preview
+# Official authoring
 
 The website remains static. It exports an authoring project; no PowerShell, resource code or Azure operation
-runs in the browser. Legacy export remains available and is the default until live qualification is accepted.
+runs in the browser. This is the only export workflow.
 
 ## Pipeline and output
 
@@ -88,12 +88,13 @@ Windows/Linux VMs require the Guest Configuration extension and a managed identi
 ## Identity, migration and rollback
 
 Project schema version 2 keeps a policy GUID and ARM definition name separately. Old JSON imports get a GUID
-once and retain `MC-<ConfigName>` as the definition name. Existing projects retain identity across refresh,
-workflow changes and exports. New configurations and templates create a fresh identity.
+once and retain `MC-<ConfigName>` as the definition name when valid. Existing projects retain identity across
+refresh, edits and exports. New configurations and templates create a fresh identity. Saved `workflow` fields
+from earlier versions are accepted and discarded; all exports use the shared authoring runtime.
 
 The native compiler exposed an invalid ScheduledTask property in the legacy catalog:
 `DisallowStartIfOnBatteries` migrates to the inverse `AllowStartIfOnBatteries`, preserving intent.
-Plain-text ExecuteAsCredential is rejected in official mode because the resource requires a credential object.
+Plain-text ExecuteAsCredential is rejected because the resource requires a credential object.
 
 Each package release uses an identifier-safe `<ConfigName>_v<Major>_<Minor>_<Patch>` name. Updating a
 definition to a new release name requires explicit `-AllowReleaseUpgrade`: review old guest assignments first

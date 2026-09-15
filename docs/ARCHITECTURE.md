@@ -1,201 +1,84 @@
 # Architecture
 
-This document explains how the Azure Machine Configuration Builder works — from user input to a deployable Azure Policy package.
+## One authoring pipeline
 
-## High-Level Overview
+The static React application edits configurations and exports source. It does not implement a MOF compiler
+or an Azure Policy template generator.
 
-The builder is a browser-based tool (React + TypeScript) that generates six deployment artifacts from a visual configuration. There's no server — everything runs client-side in the browser.
+1. The editor stores `ConfigurationState`, resource properties and persistent project identity.
+2. `getOfficialProjectFiles` validates the configuration and builds a source-project file map.
+3. `generateBundle` packages that map with JSZip.
+4. On the user's authoring host, the shared PowerShell runtime invokes the official compiler and packager.
+5. Explicit evaluation produces a package-hash-bound validation receipt.
+6. Publishing uploads those exact bytes, invokes the official policy generator and upserts a definition.
+7. Policy assignment and remediation are separate, authorized actions.
 
-```
-User Input (UI)
-     │
-     ▼
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│ Config Store  │───▶│  Generators  │───▶│  ZIP Bundle  │
-│  (Zustand)    │    │  (6 modules) │    │  (JSZip)     │
-└──────────────┘    └──────────────┘    └──────────────┘
-                           │
-            ┌──────────────┼──────────────┐
-            │              │              │
-            ▼              ▼              ▼
-        .mof          policy.json    package.ps1
-        .ps1          metaconfig     README.md
-```
+## Browser surfaces
 
-## The Generator Pipeline
+| Module | Responsibility |
+|--------|----------------|
+| `schemas` | 24 resource schemas across six modules: UI fields, types, defaults and native class metadata |
+| `templates` | Nine editable starting configurations |
+| `store/configStore.ts` | Persistence, resource editing, coalesced undo/redo and validation |
+| `utils/configuration.ts` | JSON migration, defaults, stable identity and conditional requirements |
+| `utils/resourceValidation.ts` | Shared identifiers, required values, enum and unsupported-resource validation |
+| `generators/ps1Generator.ts` | DSC source, literal escaping, pinned resource imports and DependsOn |
+| `generators/officialProjectGenerator.ts` | Source-project validation, shared runtime assets and tailored README |
+| `generators/bundleGenerator.ts` | Public alias for the single source-project ZIP generator |
+| `components/OutputPreview.tsx` | Source, project, build/test/publish wrapper and README previews |
 
-Each generator is independent — they all take a `ConfigurationState` object and produce a specific artifact. There's no chaining between generators. The bundle generator calls all of them to produce the final ZIP.
+Project schema version 2 contains a persistent policy GUID and an explicit ARM definition name. Older JSON
+without project metadata is migrated once. Existing `MC-<Name>` definition names are retained where valid.
+Retired `workflow` fields are accepted during import and discarded; they cannot select another export path.
+New configurations/templates get a fresh identity. Editing, undo/redo and exporting preserve it.
 
-### 1. MOF Generator (`mofGenerator.ts`)
+Defaults are applied without mutating caller data. `nxFile` creation in AuditAndSet requires explicit Mode,
+Owner and Group because nxtools 1.6.0 invokes those setters when the item is absent. Audit and Ensure=Absent
+do not gain ownership defaults or additional creation requirements.
 
-**Input:** Configuration state with resources and properties.
-**Output:** A compiled MOF file (Managed Object Format) with UTF-8 BOM.
+## Shared PowerShell runtime
 
-The MOF is the core artifact — it's what the Machine Configuration agent actually evaluates on the target machine. The generator:
+The files under `scripts` are included verbatim in downloaded projects using Vite raw imports.
+The repository `deploy.ps1` is only a wrapper over `scripts/deploy.ps1`; it accepts a source project, not
+prebuilt legacy artifacts. There is no second implementation of packaging or deployment.
 
-- Emits a `Configuration` document header with metadata comments
-- For each resource, writes an `instance of <ClassName>` block with:
-  - `ResourceID` — e.g. `[nxFile]CheckHostsFile` (matches DSC convention)
-  - `SourceInfo` — breadcrumb for debugging
-  - `ModuleName` / `ModuleVersion` — which DSC module to use
-  - All configured properties, formatted per type (strings are escaped and quoted, arrays use `{}` syntax, booleans emit `True`/`False`)
-  - `DependsOn` — references other resources by `[ClassName]InstanceName` syntax
-- Ends with an `OMI_ConfigurationDocument` instance containing the document metadata
+`McBuilder.psm1` owns:
 
-**Key detail:** MOF string escaping is critical. Registry paths contain backslashes (`HKLM:\SOFTWARE\...`), and values can contain quotes, newlines, or null bytes. The `escapeMofString()` function handles all of these.
+- Locked, project-local tool restoration and process-wide Az imports.
+- Serialized access to GuestConfiguration's shared worker directory.
+- Fresh-process DSC compilation before calling `New-GuestConfigurationPackage`.
+- Package inspection, SHA256 fingerprints and validation receipts.
+- Explicit Get/Test evaluation and disposable-host Set verification.
+- Official policy generation and hash comparison before publication.
+- Tenant/subscription guards, Entra storage access and in-place definition updates.
 
-### 2. PS1 Generator (`ps1Generator.ts`)
+The pinned GuestConfiguration 4.12.0 non-VMSS compatibility guard is documented in
+[OFFICIAL-AUTHORING.md](OFFICIAL-AUTHORING.md). It patches one upstream resource-index access only when
+the original/patched source digests match. No custom policy JSON generation or ZIP-layout rewriting remains.
 
-**Input:** Configuration state.
-**Output:** A human-readable PowerShell DSC Configuration script.
+## Trust and lifecycle boundaries
 
-This is the "source code" equivalent of the MOF. It's not used for deployment (the MOF is), but it's included as a reference so users can:
+Building does not configure the host. Evaluation executes resource code and requires acknowledgement.
+Remediation changes the host and requires explicit disposable-environment consent. Both Set reports and later
+Get results are checked; a partially successful Set cannot earn a successful receipt.
 
-- Understand what the configuration does in familiar PowerShell syntax
-- Modify and recompile it manually if needed
-- Use it as a starting point for more complex configurations
+Build records fingerprint project metadata, source, compiler wrapper, lock and runtime. Changing any input or
+package bytes requires rebuilding/revalidation. Receipts prevent accidental stale deployment, not deliberate tampering.
+The browser never handles Azure credentials. Generated policy output contains SAS credentials and is excluded
+by the downloaded `.gitignore`.
 
-### 3. Policy Generator (`policyGenerator.ts`)
+Package releases have versioned names and immutable, hash-suffixed blob paths. Policy identity remains stable.
+Changing a guest assignment release name requires explicit review and `-AllowReleaseUpgrade`; nothing is
+deleted automatically. Scope changes, role grants, assignment creation and cleanup remain separate actions.
 
-**Input:** Configuration state.
-**Output:** An Azure Policy definition JSON.
+## Validation
 
-This is the most complex generator. It produces either:
+Regular tests cover the full catalog in both modes, template exports, source formatting, malformed input,
+saved-project migration, ownership requirements, identity/history and executable runtime contracts.
+Windows and Ubuntu native CI compiles the catalog/templates and tests real controlled packages,
+Set/Get, idempotence, drift, partial Set failure rejection, policy generation and publishing imports.
+This tests the same runtime distributed to users, not a parallel handwritten-MOF implementation.
 
-- **AuditIfNotExists** (for `Audit` mode) — checks if a compliant GC assignment exists
-- **DeployIfNotExists** (for `AuditAndSet` mode) — deploys a GC assignment that remediates drift
-
-**Key architectural decisions:**
-
-- **Dual resource targeting:** The `if` condition matches both `Microsoft.Compute/virtualMachines` AND `Microsoft.HybridCompute/machines` (Azure Arc), so the same policy works for both VM types.
-- **Conditional ARM resources (DINE only):** The deployment template contains two GC assignment resources — one for VMs, one for Arc — with ARM `condition` expressions that activate the correct one based on `[field('type')]`. This was necessary because VM and Arc GC assignments use different resource type paths.
-- **API version:** Uses `2024-04-05` for GC assignments (required for `assignmentType` support) and `2024-03-01` for VM/extension resources.
-- **Fixed configurations:** Properties stay in the MOF. The builder exposes no policy overrides, so assignment `configurationParameter` is `[]` and the metadata mapping is `{}`. These are distinct Azure contracts, not interchangeable shapes.
-- **Release lifecycle:** The compliance-only existence condition matches the official cmdlet for fixed configurations. `parameterHash` is for policy overrides, not package-content hashes. Deployment replaces URI/hash in metadata and DINE parameters; increment the package/policy version for releases.
-- **Extension prerequisites:** Extension and identity deployment is handled by the built-in prerequisites initiative, not the custom policy.
-- **Scope:** Individual Azure VMs and Arc-enabled servers only. VMSS is not targeted.
-
-### 4. Metaconfig Generator (`metaconfigGenerator.ts`)
-
-**Input:** Configuration state.
-**Output:** A `metaconfig.json` file.
-
-The metaconfig contains `Type` (`Audit` or `AuditAndSet`) and `Version`, matching `New-GuestConfigurationPackage`. The package script reads these fields and passes them as cmdlet arguments. The cmdlet generates the actual metaconfig inside the ZIP. Runtime agent settings are service-owned and are not emitted as authored package settings.
-
-### 5. Package Script Generator (`packageScriptGenerator.ts`)
-
-**Input:** Configuration state.
-**Output:** A `package.ps1` PowerShell 7 script.
-
-This is the "glue" script that turns the raw MOF into a deployable package. When the user runs it on their workstation:
-
-1. **Detects required DSC modules** by parsing the MOF for `ModuleName` and `ModuleVersion` entries
-2. **Installs them automatically** — both `GuestConfiguration` and the DSC resource modules (e.g. `PSDscResources`, `nxtools`, `SecurityPolicyDsc`)
-3. **Calls `New-GuestConfigurationPackage`** to bundle the MOF + modules into a deployable `.zip`
-4. **Repairs flat module paths** to versioned paths and hashes the final ZIP
-
-Local compliance evaluation is a separate explicit step (`Test-GuestConfigurationPackage`), not automatically run by this script.
-
-The script includes both a dynamic path (MOF parsing) and a static fallback (hardcoded module list) for reliability.
-
-### 6. README Generator (`readmeGenerator.ts`)
-
-**Input:** Configuration state.
-**Output:** Step-by-step deployment instructions.
-
-Generates a README tailored to the specific configuration — correct module names, policy type, platform-specific prerequisite initiative IDs, and PowerShell commands with the configuration name pre-filled.
-
-### Bundle Generator (`bundleGenerator.ts`)
-
-Calls all six generators and produces a ZIP file (via JSZip) with all artifacts at the root level. Also provides a `computeContentHash()` utility for SHA256 hashing.
-
-## Resource Schemas
-
-The builder knows about 29 DSC resources across 6 modules (24 active, 5 blocked in GC sandbox). Each schema (`src/schemas/`) defines:
-
-```typescript
-interface ResourceSchema {
-  resourceName: string;     // e.g. "Registry"
-  moduleName: string;       // e.g. "PSDscResources"
-  moduleVersion: string;    // e.g. "2.12.0.0"
-  mofClassName: string;     // e.g. "MSFT_RegistryResource"
-  platform: 'Windows' | 'Linux';
-  properties: PropertySchema[];  // with types, validation, enums
-}
-```
-
-Schemas are the source of truth for:
-- What properties are available for each resource
-- Which properties are required vs optional
-- Which property is the key property (for MOF `ResourceID`)
-- Enum values (e.g. `State: Running | Stopped`)
-- Validation patterns and messages
-
-## Templates
-
-Nine pre-built templates (`src/templates/`) demonstrate realistic configurations. Each template is a complete `ConfigurationState` that can be loaded directly into the store. Templates cover:
-
-- CIS-aligned Windows security baselines (14 resources)
-- Linux SSH hardening, file permissions, user security
-- Script-based audits (nxScript with `[Reason]` class)
-- Remediation (AuditAndSet with nxScript)
-
-## State Management
-
-The store (`src/store/configStore.ts`) uses Zustand with:
-
-- **Undo/redo** — full snapshots in bounded `past[]` / `future[]` arrays; successive edits to one field coalesce within 750 ms, with focus changes and discrete actions ending the group
-- **LocalStorage persistence** — configuration survives browser refresh
-- **Import/export** — shape-checked JSON with schema defaults applied consistently on import, reload and generation
-- **Validation** — checks for duplicate instance names, missing required properties, and nxFile `Mode` format warnings
-
-## Official authoring preview
-
-The opt-in official workflow preserves the editor but exports DSC source and the shared `scripts/McBuilder.psm1`
-runtime instead of browser-generated MOF/policy/metaconfig. The actual compiler and GuestConfiguration 4.12.0
-produce those artifacts after download. Shared resource validation is independent of the legacy MOF generator.
-Versioned project metadata preserves policy identity through import/export, persistence and undo/redo.
-
-Build and validation records bind the source, toolchain and exact package bytes. Publishing checks the selected
-tenant/subscription, calls the official policy generator, compares hashes and upserts without assigning or remediating.
-Native Windows/Linux CI uses the exported runtime; legacy tests remain separate. See [official authoring](OFFICIAL-AUTHORING.md).
-
-## Build & CI
-
-- **Vite** — development server and production build
-- **Vitest** — schema/generator/store regressions plus execution of generated PowerShell and the standalone deployer against isolated mocks (requires PowerShell 7)
-- **E2E validation** — `e2e/generate-test-configs.ts` creates 46 test configurations, `e2e/validate-packages.ps1` compiles them with `New-GuestConfigurationPackage` and runs local compliance tests
-- **GitHub Actions** — CI runs lint + test on every push; Pages workflow deploys the built site
-
-Deployment defaults to Entra ID with a six-day user delegation SAS and no automatic account-key fallback. Shared Key is explicit opt-in. Policy definitions are upserted without deletion; filled policy JSON stays in memory. Script tests cover these behaviors, repeat deployments, literal SAS replacement, errors, and actual ZIP structure/metadata without contacting Azure.
-
-## Deployment Architecture (Azure Side)
-
-Once a package leaves the builder, the Azure deployment flow is:
-
-```
-                    ┌───────────────────────────────────────────────────┐
-                    │              Azure Control Plane                  │
-                    │                                                   │
-  package.zip ────▶ │  Blob Storage  ──▶  Azure Policy  ──▶  Policy    │
-  (SAS URL)         │                      Definition        Assignment │
-                    │                                                   │
-                    └───────────────────────┬───────────────────────────┘
-                                            │
-                              ┌──────────────┼──────────────┐
-                              │              │              │
-                              ▼              ▼              ▼
-                         Azure VM       Azure VM       Arc Server
-                        (Windows)       (Linux)        (Linux)
-                              │              │              │
-                              ▼              ▼              ▼
-                         GC Agent        GC Agent       GC Agent
-                        downloads       downloads      downloads
-                        package.zip    package.zip    package.zip
-                              │              │              │
-                              ▼              ▼              ▼
-                        Evaluates MOF   Evaluates MOF  Evaluates MOF
-                        Reports to ARM  Reports to ARM Reports to ARM
-```
-
-The GC agent evaluates every 15 minutes by default. For `ApplyAndAutoCorrect` assignments, it also remediates drift on each cycle.
+Live Azure VM verification additionally exercised actual policy publication, assignment/remediation deployment,
+repeat publication with preserved IDs, and Windows/Linux guest compliance. Arc live validation and broad
+production rollout remain separate qualification scopes.

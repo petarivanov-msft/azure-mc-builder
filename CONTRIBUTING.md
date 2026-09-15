@@ -14,7 +14,8 @@ npm run lint     # ESLint
 npm run build    # Production build
 ```
 
-PowerShell 7 (`pwsh`) is required for `npm test`. Script regression tests execute both deployment entry points and generated package scripts against isolated mock modules; they never contact Azure or install modules. Real DSC package evaluation remains in the OS-specific CI E2E jobs.
+PowerShell 7.2+ (`pwsh`) is required for `npm test`. Runtime contract tests use isolated mocks and never contact
+Azure or install modules. Native Windows/Ubuntu CI separately exercises real compilation and controlled packages.
 
 ## Architecture Overview
 
@@ -33,41 +34,35 @@ download. Mock contracts run in the normal suite. See [official authoring](docs/
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a deep dive. The short version:
 
-```
-UI (React + FluentUI + Zustand)
-  → configStore (state)
-  → generators/ (MOF, PS1, Policy JSON, Metaconfig, Bundle)
-  → downloadable ZIP
-```
+The editor exports a source-project ZIP. The shared PowerShell runtime compiles, packages, tests and publishes it.
+Do not add a browser MOF compiler, handwritten policy templates, or a second packaging implementation.
 
 ### Key Directories
 
 | Path | What |
 |------|------|
 | `src/components/` | React UI — `AppLayout.tsx` is the main shell |
-| `src/generators/` | All code generation: MOF, PS1, policy, metaconfig, bundle, readme |
-| `src/schemas/` | Windows (17) & Linux (12) DSC resource schemas |
+| `src/generators/` | DSC source and source-project file/ZIP generation |
+| `src/schemas/` | Windows (16) & Linux (8) DSC resource schemas |
 | `src/templates/` | 9 pre-built configuration templates |
 | `src/store/` | Zustand store with undo/redo, validation, localStorage persistence |
 | `src/types/` | TypeScript types (`ConfigurationState`, `ResourceInstance`, etc.) |
-| `e2e/` | E2E tests — generates configs, builds packages with `pwsh`, validates with DSC engine |
+| `scripts/` | Shared official compiler/package/test/publish runtime and toolchain lock |
+| `e2e/` | Executable PowerShell runtime contract tests |
 | `docs/` | Architecture, templates, permissions, FAQ |
 
 ### How Generators Work
 
-1. **mofGenerator** — converts `ConfigurationState` → MOF document (UTF-8 with BOM)
-2. **ps1Generator** — generates the DSC configuration script (`.ps1`)
-3. **packageScriptGenerator** — generates `package.ps1` (installs modules, compiles, packages)
-4. **policyGenerator** — generates Azure Policy definition JSON (Audit or DINE with Arc support)
-5. **metaconfigGenerator** — generates the metaconfig JSON for the GC agent
-6. **readmeGenerator** — generates a human-readable deployment guide
-7. **bundleGenerator** — zips everything into a downloadable package
+1. **ps1Generator** emits DSC source with safe literals and pinned imports.
+2. **officialProjectGenerator** validates the project, includes the shared scripts and creates its README.
+3. **bundleGenerator** exposes the single source-project ZIP export.
+4. **scripts/McBuilder.psm1** delegates final artifact generation to Microsoft's tools after download.
 
 ### Generator Testing
 
-Every generator has unit tests in `src/generators/__tests__/`. The `allResources.test.ts` file ensures every schema produces valid output through every generator.
-
-E2E tests (`e2e/`) actually compile packages with PowerShell and validate them with the real DSC engine on both Linux and Windows CI runners.
+Tests cover all schemas in both modes, template round-trips, safe source formatting, validation, persistence and
+runtime contracts. Native compiler/runtime tests in the same test directory are enabled explicitly on disposable
+Windows/Ubuntu CI runners. They validate actual Set reports as well as subsequent Get results and reject partial failures.
 
 ## Adding a New Resource Schema
 
@@ -76,20 +71,22 @@ E2E tests (`e2e/`) actually compile packages with PowerShell and validate them w
    ```typescript
    export const myResource: ResourceSchema = {
      resourceName: 'MyResource',       // DSC resource name
-     friendlyName: 'My Resource',      // UI display name
      description: 'What it checks',
      platform: 'Windows',              // or 'Linux'
      moduleName: 'PSDscResources',     // DSC module that contains it
      moduleVersion: '2.12.0.0',
      mofClassName: 'MSFT_MyResource',  // MOF class (or just 'myResource' for Linux nx*)
+     dscV3TypeName: 'MyModule/MyResource',
+     category: 'System',
      properties: [
-       { name: 'Name', type: 'string', required: true, description: '...' },
+       { name: 'Name', type: 'string', required: true, isKey: true, description: '...' },
        // ...
      ],
    };
    ```
 3. Export from `src/schemas/index.ts`
-4. Run `npm test` — `allResources.test.ts` will automatically validate your schema through all generators
+4. Update the verified native class allowlist and `scripts/toolchain.lock.json` when adding a module/version.
+5. Run regular and native tests. Do not infer execution support from successful source generation alone.
 
 ## Adding a New Template
 

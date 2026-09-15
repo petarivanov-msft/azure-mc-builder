@@ -5,7 +5,6 @@ export interface ProjectSettings {
   schemaVersion: 2;
   policyId: string;
   definitionName: string;
-  workflow: 'legacy' | 'official';
   includeArc: boolean;
 }
 
@@ -64,7 +63,6 @@ export interface ValidationError {
 
 export interface AppState extends ConfigurationState {
   project: ProjectSettings;
-  setWorkflow: (workflow: ProjectSettings['workflow']) => void;
   setIncludeArc: (includeArc: boolean) => void;
   // Selection
   selectedResourceId: string | null;

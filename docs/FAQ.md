@@ -11,9 +11,9 @@ Most customers start with Audit to understand their baseline, then move to Audit
 
 ### Can I author packages on any OS?
 
-Yes. PowerShell 7 is cross-platform. You can build Linux packages on Windows, Windows packages on macOS — it doesn't matter. The `New-GuestConfigurationPackage` cmdlet works everywhere.
-
-**Always author on your workstation, not on target VMs.**
+Use a qualified Windows or Ubuntu authoring host with the locked toolchain. Matching-OS compilation/evaluation
+is covered in native CI; macOS and arbitrary cross-OS combinations are not promised.
+Evaluation runs resource code, and remediation changes the host. Use a trusted disposable test machine.
 
 ### Do I need to install modules on target VMs?
 
@@ -21,11 +21,14 @@ No. The `New-GuestConfigurationPackage` cmdlet bundles everything into the .zip 
 
 ### What's the metaconfig.json file?
 
-It contains package `Type` (`Audit` or `AuditAndSet`) and `Version`. `package.ps1` reads these values and passes them to `New-GuestConfigurationPackage`, which creates the metaconfig inside the package. Runtime agent settings are not authored here. Re-export the bundle when changing mode or version so the policy and package stay consistent.
+The official packager creates it inside the deployable ZIP using Type and Version from the source project's
+configuration. It is not a browser-generated input file. Runtime agent settings are not authored here.
+Change the project and rebuild/revalidate instead of editing packaged metadata.
 
 ### Can I use custom DSC resources?
 
-Yes, as long as they have actual PowerShell implementations (`.psm1` files). The MC agent runs resources via PowerShell — schema-only MOF resources don't work. `New-GuestConfigurationPackage` will bundle your custom module into the package automatically.
+The editor supports its catalog. Adding other modules requires extending the catalog and toolchain lock and
+qualifying their source, packaging and execution; custom-resource import is not currently provided by the UI.
 
 ### What does `New-GuestConfigurationPackage` actually do?
 
@@ -68,7 +71,7 @@ All from the `nxtools` module:
 
 Three things must be assigned at the subscription level:
 
-1. **Deploy MC Extension** — installs the `AzurePolicyforWindows` or `AzurePolicyforLinux` extension on VMs
+1. **Deploy MC Extension** — installs the `ConfigurationforWindows` or `ConfigurationforLinux` extension on VMs
 2. **Add System-Assigned Managed Identity** — the MC agent needs an identity to authenticate
 3. **Your custom policy** — the one created from this builder's output
 
@@ -86,17 +89,40 @@ Integrity verification. When the MC agent downloads the package, it computes the
 
 ### How do I update an existing policy?
 
-Increment the builder version, download a new bundle, rebuild the package and run `deploy.ps1`. The script uploads to a hash-suffixed blob name, updates URI/hash metadata (and DINE deployment parameters), and upserts the policy definition without deleting it. Existing assignments retain the definition ID. Follow the [documented policy lifecycle](https://learn.microsoft.com/azure/governance/machine-configuration/how-to/create-policy-definition#policy-lifecycle).
+Increment the builder version, download a source project, rebuild, validate and publish. The official generator
+sets the URI/hash metadata and deployment parameters. The script upserts the stable policy definition without
+deleting assignments. A changed release name requires explicit `-AllowReleaseUpgrade` after reviewing old
+corrective guest assignments. Follow the [documented policy lifecycle](https://learn.microsoft.com/azure/governance/machine-configuration/how-to/create-policy-definition#policy-lifecycle).
 
 For fixed configurations, the official cmdlet uses a compliance-only existence condition. `parameterHash` checks policy overrides, not package versions; adding it without parameters is not an update mechanism.
 
 ### Why is configurationParameter an object in metadata but an array in the assignment?
 
-These are different contracts. Metadata maps policy parameter names to DSC properties (`{}` when none are exposed). The assignment resource takes name/value overrides (`[]` here). Fixed resource values are already in the MOF and must not be copied into the override array.
+These are different contracts: metadata maps policy parameter names to DSC properties, while assignment resources
+take name/value overrides. The official generator owns those shapes and can omit optional fields when no overrides
+are exposed. Fixed values stay in the compiled MOF; the builder does not duplicate them into policy overrides.
 
 ### Why does the deployment SAS expire after six days?
 
-The default uses Microsoft Entra ID and a user delegation SAS, which has a short lifetime. Re-run deployment before the printed expiry. Shared-key-disabled storage works on this path. For approved long-lived service SAS deployments, opt in with `-StorageAuthMode SharedKey -SasExpiryDays 1095`; see [permissions](PERMISSIONS.md).
+Publishing uses Microsoft Entra ID and a user delegation SAS. Re-run deployment before the printed expiry,
+without rebuilding the validated package. Shared-key-disabled storage works on this path; Shared Key deployment
+is not supported. See [permissions](PERMISSIONS.md).
+
+### Can I still import older configurations?
+
+Yes. Old JSON and previous project metadata are migrated without losing the saved policy identity. Retired
+workflow selectors are discarded. Downloads always contain an authoring project.
+
+### Why does nxFile require Mode, Owner and Group for remediation?
+
+nxtools 1.6.0 calls those setters unconditionally when it creates a missing item. Choose the values explicitly
+for AuditAndSet with Ensure=Present. Audit and Ensure=Absent do not gain ownership defaults.
+
+### Does a successful remediation deployment mean the machine is compliant?
+
+No. It confirms deployment of the guest assignment. Check the guest report separately.
+The local validation gate also checks the actual Set report: partial creation followed by an exception is a failure,
+even when a later Get happens to be compliant.
 
 ### Are VM scale sets supported?
 
@@ -135,10 +161,6 @@ Check:
 
 ### Hash mismatch error
 
-If you see `GuestConfigurationAssignmentValidationFailed`, the hash in your policy doesn't match the uploaded package. Fix:
-
-```powershell
-# Get the correct hash
-(Get-FileHash .\output\MyConfig.zip -Algorithm SHA256).Hash
-# Update the policy definition with the new hash
-```
+If you see `GuestConfigurationAssignmentValidationFailed`, inspect which package bytes were uploaded.
+Rebuild if necessary, revalidate, then publish through `deploy.ps1`. The runtime compares the official generator's
+hash to the validated package; do not bypass that check by hand-editing a hash.

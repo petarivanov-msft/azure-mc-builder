@@ -19,79 +19,55 @@ MC uses PowerShell Desired State Configuration (DSC) under the hood, but you don
 1. **Pick a platform** (Windows or Linux) and a configuration name
 2. **Add resources** from a catalog of DSC resources across 6 modules
 3. **Configure properties** with validated inputs, enums, and contextual help
-4. **Preview** the generated MOF, PS1, metaconfig, policy JSON, and deployment script in real time
-5. **Download** a ready-to-use package bundle with everything you need to deploy
+4. **Preview** the DSC source, project metadata, build/test/publish scripts and README
+5. **Download** a source project, then compile, validate and publish with Microsoft's tools
 
-The downloaded bundle contains:
+The downloaded ZIP is an **authoring project**, not a deployable Machine Configuration package:
 
 | File | Purpose |
 |------|---------|
-| `<Name>.mof` | Compiled DSC configuration (what the MC agent evaluates) |
-| `<Name>.ps1` | PowerShell DSC Configuration script (human-readable source) |
-| `<Name>.metaconfig.json` | Package Type and Version, passed by `package.ps1` to the official packaging cmdlet |
-| `policy.json` | Azure Policy definition (AuditIfNotExists or DeployIfNotExists) |
-| `package.ps1` | Helper script — auto-installs modules and creates the deployable package |
-| `deploy.ps1` | Deploy script — uploads ZIP and creates or updates the policy definition without deleting assignments |
-| `README.md` | Step-by-step deployment instructions |
+| `Configuration.ps1` | DSC source consumed by the official compiler |
+| `config.json` | Editable configuration, dependencies and persistent policy identity |
+| `toolchain.lock.json` | Exact tool and resource versions |
+| `compile.ps1`, `package.ps1` | Compile source and build the real package |
+| `test.ps1` | Explicit evaluation and optional disposable-host remediation |
+| `deploy.ps1`, `McBuilder.psm1` | Shared publishing wrapper and runtime |
+| `README.md` | Platform- and mode-specific instructions |
 
-## Official authoring preview
+## Build, Test, Publish
 
-Select **Official authoring (preview)** under Export workflow to download a source project.
-The preview uses the real DSC compiler and GuestConfiguration **4.12.0** to create the MOF, package metadata,
-and policy. It does not ship simulated final artifacts. Legacy artifacts remain the default during live qualification.
-
-Run the downloaded `package.ps1 -RestoreTools`, explicitly validate the exact package with `test.ps1`,
-then publish with `deploy.ps1`. Follow the downloaded README: AuditAndSet testing **modifies the test host**
-and requires `-Remediate -DisposableEnvironment -AcknowledgeExecution`. Do not run this on a production workstation.
-
-The module cache is project-local (or `MC_MODULE_CACHE`), dependencies are locked, publication checks a
-package-hash-bound validation receipt, and the tenant/subscription must be supplied explicitly.
-Policy assignment, identity grants and remediation are separate, explicit operations. Arc targeting and the
-4.12.0 auto-remediation parameter are handled explicitly; VM scale sets remain excluded.
-See [official authoring](docs/OFFICIAL-AUTHORING.md) for contracts, verification and migration.
-
-## Legacy End-to-End Workflow
-
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  1. Build in  │────▶│ 2. Download  │────▶│ 3. Run        │────▶│ 4. Run       │
-│  the web app  │     │   .zip       │     │  package.ps1  │     │  deploy.ps1  │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-                                                                       │
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐            │
-│  7. View      │◀────│ 6. MC agent  │◀────│ 5. Assign    │◀───────────┘
-│  compliance   │     │  evaluates   │     │  from Portal │
-└──────────────┘     └──────────────┘     └──────────────┘
-```
-
-### Quick Start
+The browser never generates a final MOF, metaconfig or policy definition. The DSC compiler and
+GuestConfiguration **4.12.0** create those artifacts after download.
 
 ```powershell
-# 1. Build your config in the web app, download the ZIP
+# Run from the extracted source project on a qualified Windows or Ubuntu host:
+pwsh ./package.ps1 -RestoreTools
 
-# 2. Extract and create the deployable package (on your workstation, NOT the target VM)
-#    Use pwsh (PowerShell 7+), NOT powershell (Windows PowerShell 5.1)
-cd <extracted-folder>
-pwsh ./package.ps1   # Installs modules and creates output/<Name>.zip
-# Optional local evaluation (does not apply configuration):
-# Test-GuestConfigurationPackage -Path './output/<Name>.zip'
+# Explicit Audit evaluation on a trusted, matching-OS test host:
+pwsh ./test.ps1 -AcknowledgeExecution
 
-# 3. Upload to Azure Blob Storage and create the policy definition
-#    (requires Az module: Install-Module Az)
-pwsh ./deploy.ps1 -StorageAccountName 'YourStorageAccount'
+# For AuditAndSet, use a disposable host: this changes that machine.
+# pwsh ./test.ps1 -AcknowledgeExecution -Remediate -DisposableEnvironment
 
-# 4. Assign the policy from the Azure Portal
-#    Navigate to: Azure Portal → Policy → Definitions → search "MC-<Name>"
-#    Click Assign, select your scope, and save.
-#
-#    Or assign via PowerShell:
-#    $def = Get-AzPolicyDefinition -Name 'MC-<Name>'
-#    New-AzPolicyAssignment -Name 'MyAssignment' -PolicyDefinition $def -Scope '/subscriptions/<sub-id>'
+# Publish the verified bytes to storage and create/update a policy definition:
+pwsh ./deploy.ps1 -RestoreTools -TenantId 'Your-Tenant-ID' -SubscriptionId 'Your-Subscription-ID' -StorageAccountName 'YourStorageAccount'
 ```
 
-Deployment defaults to **Microsoft Entra ID** and an HTTPS-only read SAS that expires in **6 days**. Renew it before expiry by re-running deployment. Existing-account uploads require Storage Blob Data Contributor at account scope, not permission to list keys. Shared Key and longer-lived SAS tokens are explicit opt-ins: `-StorageAuthMode SharedKey -SasExpiryDays 1095`. See [permissions and renewal](docs/PERMISSIONS.md).
+The local module cache is `.modules` (or `MC_MODULE_CACHE`). Exact versions are locked, and a validation
+receipt is tied to the package and build inputs. **A failed Set cannot be hidden by a later compliant Get.**
+Linux evaluation requires root; Windows localization errors are failures, not valid drift.
 
-To update a release, increment the builder version and repeat packaging/deployment. The script updates URI and hash together and preserves the policy definition ID. Policies target individual Azure VMs and Arc-enabled servers; VMSS is not supported. For AuditAndSet, create the policy assignment with a managed identity, grant the role listed in `roleDefinitionIds`, and create remediation for existing machines (see the generated README).
+Provision storage and permissions first. Publishing uses Microsoft Entra ID and a read-only HTTPS SAS
+valid for at most six days, without Shared Key access. Renew before expiry by redeploying the same validated
+package. `-UseAzureCli` explicitly reuses an existing CLI login without changing its default subscription.
+
+Assignment, identity grants and initial remediation are separate, explicit operations; follow the downloaded
+README. Azure VMs need the Machine Configuration extension and identity prerequisites. Arc targeting is explicit;
+VM scale sets are excluded. A successful remediation deployment is not proof of guest-level compliance.
+
+Older saved configuration JSON remains importable, including projects with a retired workflow selection.
+The saved policy identity is retained; all new downloads use the single source-project workflow.
+See [official authoring](docs/OFFICIAL-AUTHORING.md) for verification, updates, the pinned compatibility guard and rollback.
 
 ## Supported Resources
 
@@ -198,15 +174,15 @@ See [docs/PERMISSIONS.md](docs/PERMISSIONS.md) for the full guide.
 ## Prerequisites
 
 - **Azure subscription** with the permissions above
-- **PowerShell 7.x** — run `pwsh`, not `powershell` (Windows PowerShell 5.1 won't work) — [install guide](https://learn.microsoft.com/powershell/scripting/install/installing-powershell)
-- **Az PowerShell module** — `Install-Module Az -Scope CurrentUser` (for Steps 3–6: upload, policy creation, assignment)
-- DSC modules are installed automatically by `package.ps1`
+- **PowerShell 7.2+** — run `pwsh`, not `powershell` — [install guide](https://learn.microsoft.com/powershell/scripting/install/installing-powershell)
+- Restore the locked DSC/Az modules explicitly with `-RestoreTools`; global installations are not upgraded
 
-> **Author packages on your workstation**, not on target VMs. PowerShell 7 is cross-platform — you can build Linux packages from Windows and vice versa.
+> Compile and test on a qualified matching-OS Windows or Ubuntu host. Cross-OS compilation and macOS authoring
+> are not promised. Remediation testing belongs on a disposable machine, not a production workstation.
 
 ## Tech Stack
 
-- React 18 + TypeScript + Vite
+- React 19 + TypeScript + Vite
 - [Fluent UI v9](https://react.fluentui.dev/) (Microsoft's design system)
 - [Zustand](https://github.com/pmndrs/zustand) (state management with undo/redo)
 - Deployed to [GitHub Pages](https://petarivanov-msft.github.io/azure-mc-builder/)
@@ -218,22 +194,16 @@ npm install
 npm run dev       # http://localhost:5173
 npm run build     # Production build → dist/
 npm run lint      # ESLint
-npm test          # Vitest (445 tests)
+npm test          # Source-project, migration and runtime-contract tests
 ```
 
-### E2E Validation
+### Native Validation
 
-The CI pipeline validates every generated package against the real DSC engine:
-
-```bash
-# Generate all 41 test configurations (5 blocked resources are skipped)
-npx tsx e2e/generate-test-configs.ts
-
-# Validate packages (requires pwsh + GuestConfiguration module)
-pwsh e2e/validate-packages.ps1
-```
-
-**CI results:** 16/16 Linux packages + 25/25 Windows packages pass local DSC evaluation. These results have been verified against real Azure VMs running the Guest Configuration agent.
+The Windows/Ubuntu CI matrix compiles all matching catalog resources and templates, then uses the shipped
+runtime to package and evaluate representative fixtures, check remediation/idempotence/drift, reject partial
+Set failures, generate official policies and verify locked publishing-tool imports. Native tests require
+their explicit flags; a skipped native test is not counted as verification.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the disposable-runner commands.
 
 ## License
 

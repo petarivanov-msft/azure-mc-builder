@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConfigStore } from '../configStore';
-import { generateMofContent } from '../../generators/mofGenerator';
+import { generatePs1 } from '../../generators/ps1Generator';
 import { parseConfiguration } from '../../utils/configuration';
 import type { ConfigurationState } from '../../types';
 
@@ -101,7 +101,7 @@ describe('import, defaults and validation', () => {
     const state = useConfigStore.getState();
     expect(state.resources[0].properties.IsSingleInstance).toBe('Yes');
     expect(state.validate()).toEqual([]);
-    expect(generateMofContent(state.getSnapshot())).toContain('IsSingleInstance = "Yes";');
+    expect(generatePs1(state.getSnapshot())).toContain("IsSingleInstance = 'Yes'");
     expect(parseConfiguration(localStorage.getItem(storageKey)!)).toEqual(state.getSnapshot());
   });
 

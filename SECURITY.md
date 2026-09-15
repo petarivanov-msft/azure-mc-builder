@@ -2,9 +2,12 @@
 
 ## Scope
 
-Azure Machine Configuration Builder is a **client-side browser application**. All configuration building, MOF generation, and ZIP packaging happens entirely in your browser — no data is sent to any server.
+Azure Machine Configuration Builder is a **client-side browser application**. Editing and source-project ZIP
+generation happen in the browser. Official compilation, package evaluation and Azure publishing happen only
+when the user runs the downloaded PowerShell tools.
 
-The generated deployment scripts (`package.ps1`, `deploy.ps1`) run on **your workstation** and interact with your Azure subscription. These scripts are the primary security-relevant surface.
+The downloaded build/test/publish scripts are the primary execution boundary. Remediation testing belongs
+on a trusted disposable host, not a production workstation.
 
 ## Reporting a Vulnerability
 
@@ -23,7 +26,7 @@ If you discover a security vulnerability in this project, please report it throu
 
 ### What this tool does NOT have access to
 
-- No backend server — everything runs in your browser
+- No backend server for the editor
 - No telemetry or analytics — no data leaves the browser
 - No authentication — the tool itself never sees your Azure credentials
 - No network calls — the web app makes zero external requests
@@ -34,30 +37,32 @@ The downloaded bundle includes PowerShell scripts that, when you run them:
 
 | Script | What it does | Requires |
 |--------|-------------|----------|
-| `package.ps1` | Installs DSC modules from PSGallery, compiles the MOF into a GC package | PowerShell 7, internet access to PSGallery |
-| `deploy.ps1` | Authenticates to Azure, creates storage account, uploads package, creates policy definition | Az PowerShell module, Azure credentials |
+| `package.ps1` | Explicitly restores locked modules, compiles DSC source and creates the package | PowerShell 7.2+, qualified host, module cache/PSGallery |
+| `test.ps1` | Executes Get/Test and, only with explicit flags, remediation | Trusted matching-OS test host; disposable host for Set |
+| `deploy.ps1` | Authenticates, uploads verified bytes, generates and upserts the policy definition | Existing storage, locked Az tools, Azure permissions |
 
 **You should review the generated scripts before running them.** They are human-readable PowerShell.
 
 ### Trust boundaries
 
-1. **Browser → ZIP download**: Trusted. All generation is deterministic from the UI state. No external inputs.
-2. **PSGallery module installation**: `package.ps1` installs modules from the PowerShell Gallery by name and version. PSGallery is Microsoft's official module repository. Module integrity relies on PSGallery's infrastructure.
-3. **Azure deployment**: `deploy.ps1` authenticates via `Connect-AzAccount` (interactive login). It creates resources in your subscription using your identity and permissions.
+1. **Browser to source project:** imported configuration and Script resource content remain user-controlled data. Exporting does not make arbitrary source safe.
+2. **Tool restoration:** exact versions are restored into a project-owned cache on explicit request. The known GuestConfiguration compatibility patch checks both source digests; see the authoring documentation.
+3. **Evaluation:** Get/Test can execute code. Set requires an additional disposable-host acknowledgement and its actual report must succeed.
+4. **Azure publishing:** explicit tenant/subscription selection is checked. The publisher creates no storage accounts, grants no roles and starts no assignments/remediations.
 
 ## Security Considerations for Users
 
 ### SAS Tokens
 
-The official-authoring preview adds an explicit execution boundary: building does not evaluate the package;
+The authoring runtime enforces an explicit execution boundary: building does not evaluate the package;
 Get/Test requires acknowledgement, and remediation additionally requires a disposable-host flag. Script resources
 can execute arbitrary code even in Audit mode, so review all source and use isolated test hosts.
 Publication requires matching build/validation fingerprints and explicit tenant/subscription IDs. Receipts protect
-against accidental stale deployment, not deliberate tampering. The preview never assigns a policy or grants roles automatically.
+against accidental stale deployment, not deliberate tampering. The publisher never assigns a policy or grants roles automatically.
 
-Both deployment scripts default to Microsoft Entra ID (`-StorageAuthMode UserDelegation`) and an HTTPS-only, read-only blob SAS with a **6-day expiry**. User delegation keys are limited to seven days; the script caps the SAS at six days to leave room for clock skew. Renew the URL before expiry by re-running deployment. The script prints the expiry warning.
-
-For an approved long-lived service SAS, explicitly pass `-StorageAuthMode SharedKey -SasExpiryDays 1095`. This requires permission to list account keys and Shared Key authentication enabled on the account. There is **no silent fallback** from Entra ID to account keys, nor any automatic RBAC grant. Storage-account SAS expiration policies can impose stricter limits.
+The single publishing runtime uses Microsoft Entra ID and an HTTPS-only, read-only blob SAS with a
+**6-day default expiry**. `-SasExpiryDays` is limited to one through six days. Renew before expiry by redeploying
+the same validated bytes. There is no Shared Key mode or account-key fallback. Storage policies can impose stricter limits.
 
 SAS URLs are read credentials stored in policy definitions. Keep sensitive material out of packages. Network restrictions must still allow target machines to download the package.
 
@@ -65,10 +70,8 @@ See [New-AzStorageBlobSASToken](https://learn.microsoft.com/powershell/module/az
 
 ### Storage Account
 
-The script creates a storage account with:
-- `AllowBlobPublicAccess = $false` — no anonymous access
-- `Standard_LRS` — locally redundant storage
-- Container-level access set to `Off` (private)
+Provision a storage account separately. The publisher requires its name and creates a private container if
+needed. It never lists account keys or changes account access policy.
 
 For production use, consider additionally enabling:
 - Storage firewall rules (restrict to your IP / VNet)
@@ -77,7 +80,9 @@ For production use, consider additionally enabling:
 
 ### Policy Definitions
 
-Generated Azure Policy definitions are created or updated **in place** at subscription scope; deployment does not delete definitions or assignments. They require **Resource Policy Contributor** role. Review the generated `policy.json` before deploying — it defines what the policy evaluates and (for AuditAndSet mode) what it remediates. Filled policy JSON is passed in memory, not written to a shared temporary file.
+Generated Azure Policy definitions are created or updated **in place** at subscription scope, without deleting
+definitions or assignments. The official generator writes policy JSON under the source project's `output/policies`
+directory. It contains a SAS read credential: do not publish or commit output directories.
 
 ### AuditAndSet Mode
 

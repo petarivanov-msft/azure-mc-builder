@@ -21,7 +21,7 @@ const App: React.FC = () => {
   const { configName, platform, mode, resources, version, description, project, validate } = store;
   const errors = useMemo(() => {
     const validation = validate();
-    if (project.workflow === 'official' && resources.length > 0 && !validation.some(e => e.level === 'error')) {
+    if (resources.length > 0 && !validation.some(e => e.level === 'error')) {
       try { validateOfficialConfig({ configName, platform, mode, resources, version, description, project }); }
       catch (error) { validation.push({ level: 'error', message: error instanceof Error ? error.message : String(error) }); }
     }
@@ -144,14 +144,14 @@ const App: React.FC = () => {
 
             <div style={{ width: '1px', height: '24px', background: '#e0e0e0', margin: '0 4px' }} />
 
-            <Tooltip content={errorCount > 0 ? `Fix ${errorCount} error(s) before downloading` : 'Download all artifacts as ZIP'} relationship="label">
+            <Tooltip content={errorCount > 0 ? `Fix ${errorCount} error(s) before downloading` : 'Download the authoring source project'} relationship="label">
               <Button
                 appearance="primary"
                 size="small"
                 onClick={handleDownload}
                 disabled={errorCount > 0 || store.resources.length === 0 || downloading}
               >
-                {downloading ? 'Packaging...' : project.workflow === 'official' ? 'Download source project' : 'Download ZIP'}
+                {downloading ? 'Packaging...' : 'Download source project'}
               </Button>
             </Tooltip>
           </div>
